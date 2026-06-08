@@ -1,0 +1,20 @@
+{
+  "folders": [
+    { "name": "root", "path": "." },
+    { "name": "engine", "path": "engine" },
+    { "name": "desktop", "path": "apps/desktop" }
+  ],
+  "settings": {
+    "rust-analyzer.linkedProjects": ["apps/desktop/src-tauri/Cargo.toml"],
+    "cmake.sourceDirectory": "${workspaceFolder:engine}"
+  },
+  "extensions": {
+    "recommendations": [
+      "rust-lang.rust-analyzer",
+      "tauri-apps.tauri-vscode",
+      "ms-vscode.cmake-tools",
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode"
+    ]
+  }
+}

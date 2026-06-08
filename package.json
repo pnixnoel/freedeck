@@ -1,0 +1,15 @@
+{
+  "name": "freedeck",
+  "private": true,
+  "version": "0.1.0",
+  "description": "FreeDeck - high-performance cross-platform DJ application",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "dev": "pnpm --filter @freedeck/desktop dev",
+    "build": "pnpm --filter @freedeck/desktop build",
+    "tauri": "pnpm --filter @freedeck/desktop tauri"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,84 @@
+# ── Dependencies ──────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ── Frontend build / cache ────────────────────────────────────
+apps/desktop/dist/
+**/.vite/
+coverage/
+*.local
+
+# ── Rust / Tauri ──────────────────────────────────────────────
+**/target/
+apps/desktop/src-tauri/gen/
+
+# ── C++ / CMake ───────────────────────────────────────────────
+engine/build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+Makefile
+build.ninja
+.ninja_deps
+.ninja_log
+
+# C/C++ artifacts (safety net outside ignored build dirs)
+*.o
+*.obj
+*.a
+*.lib
+*.dylib
+*.dll
+*.so
+*.exe
+
+# ── Tauri bundle outputs (if copied outside target/) ──────────
+*.dmg
+*.msi
+*.AppImage
+*.deb
+
+# ── Secrets — NEVER commit ────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials.json
+**/secrets/
+
+# ── User media (DJ libraries dropped in repo root) ────────────
+# Keep engine test fixtures — they are small and required for C++ tests.
+/*.mp3
+/*.wav
+/*.flac
+/*.m4a
+/*.ogg
+/*.aiff
+/*.aif
+!engine/test/fixtures/
+
+# ── IDE / editor ──────────────────────────────────────────────
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Rust backup ───────────────────────────────────────────────
+**/*.rs.bk

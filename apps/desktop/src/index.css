@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  font-family:
+    "SF Pro Text",
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #08080c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Custom range input styling for faders */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+}
+
+.deck-controls {
+  container-type: inline-size;
+  min-height: 0;
+  flex: 1;
+}
+
+@container (max-width: 320px) {
+  .deck-controls-inner {
+    transform: scale(0.85);
+    transform-origin: center;
+  }
+}
+
+@container (max-width: 280px) {
+  .deck-controls-inner {
+    transform: scale(0.72);
+    transform-origin: center;
+  }
+}

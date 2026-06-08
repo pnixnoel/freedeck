@@ -1,0 +1,24 @@
+[package]
+name = "freedeck-desktop"
+version = "0.1.0"
+description = "FreeDeck desktop DJ application"
+authors = ["FreeDeck"]
+edition = "2021"
+
+[lib]
+name = "freedeck_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+cxx-build = "1.0"
+cmake = "0.1"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+cxx = "1.0"
+parking_lot = "0.12"

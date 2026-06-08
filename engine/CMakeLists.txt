@@ -1,0 +1,76 @@
+cmake_minimum_required(VERSION 3.22)
+project(freedeck_engine VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+set(JUCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/JUCE" CACHE PATH "Path to JUCE")
+add_subdirectory(${JUCE_PATH} ${CMAKE_BINARY_DIR}/juce EXCLUDE_FROM_ALL)
+
+include(FetchContent)
+FetchContent_Declare(
+    rubberband
+    GIT_REPOSITORY https://github.com/breakfastquay/rubberband.git
+    GIT_TAG v3.3.0
+)
+FetchContent_MakeAvailable(rubberband)
+
+add_library(rubberband STATIC
+    ${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp
+)
+target_include_directories(rubberband PUBLIC ${rubberband_SOURCE_DIR})
+
+if(APPLE)
+    target_link_libraries(rubberband PUBLIC "-framework Accelerate")
+endif()
+
+add_library(freedeck_engine STATIC
+    src/Engine.cpp
+    src/Deck.cpp
+    src/Mixer.cpp
+    src/Eq.cpp
+    src/Waveform.cpp
+    src/TrackAnalysis.cpp
+    src/TimeStretch.cpp
+)
+
+target_include_directories(freedeck_engine
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_compile_definitions(freedeck_engine
+    PUBLIC
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_APPLICATION_NAME_STRING="FreeDeck"
+        JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
+        JUCE_MODAL_LOOPS_PERMITTED=1
+)
+
+target_link_libraries(freedeck_engine
+    PUBLIC
+        juce::juce_core
+        juce::juce_events
+        juce::juce_data_structures
+        juce::juce_audio_basics
+        juce::juce_audio_formats
+        juce::juce_audio_devices
+        juce::juce_dsp
+    PRIVATE
+        rubberband
+)
+
+add_executable(freedeck_console_test test/console_main.cpp)
+target_link_libraries(freedeck_console_test PRIVATE freedeck_engine)
+
+add_executable(freedeck_track_analysis_test test/track_analysis_test.cpp)
+target_include_directories(freedeck_track_analysis_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(freedeck_track_analysis_test PRIVATE freedeck_engine juce::juce_events)
+
+add_executable(freedeck_time_stretch_test test/time_stretch_test.cpp)
+target_include_directories(freedeck_time_stretch_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(freedeck_time_stretch_test PRIVATE freedeck_engine juce::juce_events rubberband)
