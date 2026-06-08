@@ -2,7 +2,7 @@
 
 High-performance cross-platform DJ application — **v0 Phase 1** desktop demo.
 
-## Stack
+## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
