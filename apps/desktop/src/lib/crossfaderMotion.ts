@@ -91,3 +91,34 @@ export function lerpCrossfader(from: number, to: number, t: number): number {
 export function clampCrossfader(value: number): number {
   return Math.max(CROSSFADER_POSITIONS.left, Math.min(CROSSFADER_POSITIONS.right, value));
 }
+
+const CROSSFADER_FULL_SPAN =
+  CROSSFADER_POSITIONS.right - CROSSFADER_POSITIONS.left;
+
+export type SweepRange = {
+  from: number;
+  to: number;
+  travelFraction: number;
+};
+
+export function resolveSweepFromCurrent(
+  current: number,
+  action: "sweep-left" | "sweep-right",
+): SweepRange {
+  const from = clampCrossfader(current);
+  const to =
+    action === "sweep-left"
+      ? CROSSFADER_POSITIONS.left
+      : CROSSFADER_POSITIONS.right;
+  const travelFraction = Math.abs(to - from) / CROSSFADER_FULL_SPAN;
+  return { from, to, travelFraction };
+}
+
+export function sweepDurationMs(
+  bars: number,
+  bpm: number,
+  travelFraction: number,
+): number {
+  if (travelFraction === 0) return 0;
+  return barsToDurationMs(bars, bpm) * travelFraction;
+}

@@ -43,6 +43,7 @@ std::shared_ptr<DeckPlayback> Deck::rebuild_playback(
         spec.maximumBlockSize = static_cast<juce::uint32>(block_size_);
         spec.numChannels = 2;
         pb->eq.prepare(spec);
+        pb->filter.prepare(spec);
     }
 
     return pb;
@@ -74,6 +75,7 @@ bool Deck::load(const juce::File& file) {
     peaks_ = compute_waveform_peaks(*reader, 512);
     playback_ = rebuild_playback(std::move(reader));
     playback_->cue_position = 0.0;
+    ensure_playback_prepared(playback_);
     return true;
 }
 
@@ -93,25 +95,70 @@ void Deck::prepare_to_play(int samples_per_block, double sample_rate) {
     spec.maximumBlockSize = static_cast<juce::uint32>(samples_per_block);
     spec.numChannels = 2;
     playback_->eq.prepare(spec);
+    playback_->filter.prepare(spec);
 }
 
 void Deck::release_resources() {
     std::lock_guard<std::mutex> lock(load_mutex_);
-    if (playback_ != nullptr) {
-        playback_->time_stretch->releaseResources();
-        playback_->transport->releaseResources();
+    if (playback_ == nullptr)
+        return;
+
+    playback_->time_stretch->releaseResources();
+    playback_->transport->releaseResources();
+}
+
+void Deck::ensure_playback_prepared(const std::shared_ptr<DeckPlayback>& pb) {
+    if (pb == nullptr || sample_rate_ <= 0.0 || block_size_ <= 0)
+        return;
+    if (pb->time_stretch->is_prepared())
+        return;
+
+    pb->transport->prepareToPlay(block_size_, sample_rate_);
+    pb->time_stretch->prepareToPlay(block_size_, sample_rate_);
+
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = sample_rate_;
+    spec.maximumBlockSize = static_cast<juce::uint32>(block_size_);
+    spec.numChannels = 2;
+    pb->eq.prepare(spec);
+    pb->filter.prepare(spec);
+    apply_stretch_settings(pb);
+}
+
+void Deck::update_peak_meters(
+    const juce::AudioBuffer<float>& buffer, int start_sample, int num_samples) {
+    float peak_l = 0.0f;
+    float peak_r = 0.0f;
+    const int channels = buffer.getNumChannels();
+    for (int ch = 0; ch < channels; ++ch) {
+        const auto* data = buffer.getReadPointer(ch);
+        for (int i = 0; i < num_samples; ++i) {
+            const float sample = std::abs(data[start_sample + i]);
+            if (ch == 0)
+                peak_l = juce::jmax(peak_l, sample);
+            else if (ch == 1)
+                peak_r = juce::jmax(peak_r, sample);
+        }
     }
-    playback_.reset();
+    if (channels == 1)
+        peak_r = peak_l;
+    peak_left_.store(peak_l, std::memory_order_relaxed);
+    peak_right_.store(peak_r, std::memory_order_relaxed);
 }
 
 void Deck::get_next_audio_block(const juce::AudioSourceChannelInfo& info) {
     info.clearActiveBufferRegion();
 
     auto pb = playback();
-    if (pb == nullptr)
+    if (pb == nullptr) {
+        peak_left_.store(0.0f, std::memory_order_relaxed);
+        peak_right_.store(0.0f, std::memory_order_relaxed);
         return;
+    }
 
+    ensure_playback_prepared(pb);
     apply_stretch_settings(pb);
+
     pb->time_stretch->getNextAudioBlock(info);
 
     juce::AudioBuffer<float> buffer(
@@ -120,10 +167,34 @@ void Deck::get_next_audio_block(const juce::AudioSourceChannelInfo& info) {
         info.startSample,
         info.numSamples);
 
+    buffer.applyGain(trim_gain_.load(std::memory_order_relaxed));
     pb->eq.process(buffer);
+    pb->filter.process(buffer, filter_amount_.load(std::memory_order_relaxed));
 
     const float gain = volume_.load(std::memory_order_relaxed);
     buffer.applyGain(gain);
+    update_peak_meters(buffer, info.startSample, info.numSamples);
+}
+
+DeckSnapshot Deck::snapshot() const {
+    DeckSnapshot state;
+    state.peak_left = peak_left_.load(std::memory_order_relaxed);
+    state.peak_right = peak_right_.load(std::memory_order_relaxed);
+    state.volume = volume_.load(std::memory_order_relaxed);
+    state.trim_gain = trim_gain_.load(std::memory_order_relaxed);
+    state.filter_amount = filter_amount_.load(std::memory_order_relaxed);
+    state.tempo_ratio = tempo_ratio_.load(std::memory_order_relaxed);
+    state.key_lock = key_lock_.load(std::memory_order_relaxed);
+
+    auto pb = playback();
+    state.loaded = pb != nullptr;
+    if (pb != nullptr) {
+        state.eq_low_db = pb->eq.gain_db(0);
+        state.eq_mid_db = pb->eq.gain_db(1);
+        state.eq_high_db = pb->eq.gain_db(2);
+    }
+
+    return state;
 }
 
 void Deck::set_playing(bool playing) {
@@ -162,6 +233,15 @@ void Deck::set_eq(uint8_t band, float gain_db) {
     auto pb = playback();
     if (pb != nullptr)
         pb->eq.set_gain_db(band, gain_db);
+}
+
+void Deck::set_filter(float amount) {
+    filter_amount_.store(juce::jlimit(-1.0f, 1.0f, amount), std::memory_order_relaxed);
+}
+
+void Deck::set_trim(float gain_db) {
+    gain_db = juce::jlimit(-12.0f, 12.0f, gain_db);
+    trim_gain_.store(juce::Decibels::decibelsToGain(gain_db), std::memory_order_relaxed);
 }
 
 void Deck::set_tempo_ratio(float ratio) {

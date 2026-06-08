@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CenterMixerPanel } from "./components/CenterMixerPanel";
 import { Deck } from "./components/Deck";
 import { Library } from "./components/Library";
+import { GeekDataPanel } from "./components/GeekDataPanel";
 import { TopBar } from "./components/TopBar";
 import { TrackInfoBar, type DeckTrackInfo } from "./components/TrackInfoBar";
 import { useCrossfaderShortcuts } from "./hooks/useCrossfaderShortcuts";
@@ -12,6 +13,9 @@ import { formatKey } from "./lib/formatAnalysis";
 import { type LibraryTrack } from "./lib/mockLibrary";
 import { applyPitchBend } from "./lib/pitchBend";
 import { canSync, alignFollowerToMaster, effectiveBpm, resolveMasterDeck } from "./lib/sync";
+
+/** UI knob order is High/Mid/Low; engine bands are 0=low, 1=mid, 2=high. */
+const UI_TO_ENGINE_EQ_BAND = [2, 1, 0] as const;
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -24,7 +28,34 @@ export default function App() {
     deck_b_playing: false,
     output_left: 0,
     output_right: 0,
+    crossfader: 0,
+    crossfader_gain_a: 1,
+    crossfader_gain_b: 0,
+    deck_a_peak_left: 0,
+    deck_a_peak_right: 0,
+    deck_a_volume: 1,
+    deck_a_trim_gain: 1,
+    deck_a_filter: 0,
+    deck_a_eq_low_db: 0,
+    deck_a_eq_mid_db: 0,
+    deck_a_eq_high_db: 0,
+    deck_a_tempo: 1,
+    deck_a_key_lock: true,
+    deck_a_loaded: false,
+    deck_b_peak_left: 0,
+    deck_b_peak_right: 0,
+    deck_b_volume: 1,
+    deck_b_trim_gain: 1,
+    deck_b_filter: 0,
+    deck_b_eq_low_db: 0,
+    deck_b_eq_mid_db: 0,
+    deck_b_eq_high_db: 0,
+    deck_b_tempo: 1,
+    deck_b_key_lock: true,
+    deck_b_loaded: false,
   });
+
+  const [geekDataOpen, setGeekDataOpen] = useState(false);
 
   const positionRefA = useRef(0);
   const positionRefB = useRef(0);
@@ -60,6 +91,14 @@ export default function App() {
 
     (async () => {
       const started = await engine.startEngine();
+      if (started) {
+        await engine.setVolume(0, 1);
+        await engine.setVolume(1, 1);
+        await engine.setFilter(0, 0);
+        await engine.setFilter(1, 0);
+        await engine.setTrim(0, 0);
+        await engine.setTrim(1, 0);
+      }
       setReady(started);
       unlisten = await engine.onTelemetry((t) => {
         positionRefA.current = t.deck_a_position;
@@ -88,7 +127,30 @@ export default function App() {
     lastAutoMaster: lastAutoMasterRef.current,
   });
 
+  const syncDeckMixerToEngine = useCallback(
+    async (deck: 0 | 1) => {
+      if (deck === 0) {
+        await engine.setVolume(0, volumeA);
+        await engine.setFilter(0, (filterA - 50) / 50);
+        await engine.setTrim(0, trimA);
+        for (let band = 0; band < 3; band++) {
+          await engine.setEq(0, UI_TO_ENGINE_EQ_BAND[band as 0 | 1 | 2], eqA[band]);
+        }
+      } else {
+        await engine.setVolume(1, volumeB);
+        await engine.setFilter(1, (filterB - 50) / 50);
+        await engine.setTrim(1, trimB);
+        for (let band = 0; band < 3; band++) {
+          await engine.setEq(1, UI_TO_ENGINE_EQ_BAND[band as 0 | 1 | 2], eqB[band]);
+        }
+      }
+    },
+    [volumeA, volumeB, filterA, filterB, trimA, trimB, eqA, eqB],
+  );
+
   const loadDeck = useCallback(async (deck: 0 | 1, libraryTrack?: LibraryTrack) => {
+    await engine.setPlay(deck, false);
+
     if (deck === 0) {
       setPeaksA([]);
       setTrackA(null);
@@ -136,7 +198,17 @@ export default function App() {
       setTrackB(updated);
       setPeaksB(peaks);
     }
-  }, []);
+
+    if (deck === 0) {
+      setVolumeA(1);
+      await engine.setVolume(0, 1);
+    } else {
+      setVolumeB(1);
+      await engine.setVolume(1, 1);
+    }
+
+    await syncDeckMixerToEngine(deck);
+  }, [syncDeckMixerToEngine]);
 
   const applySyncToFollower = useCallback(
     async (followerDeck: 0 | 1) => {
@@ -209,6 +281,7 @@ export default function App() {
         deck === 0 ? telemetry.deck_a_playing : telemetry.deck_b_playing;
       const willPlay = !playing;
       if (willPlay) {
+        await syncDeckMixerToEngine(deck);
         const engaged = deck === 0 ? syncEngagedA : syncEngagedB;
         const master = resolveMasterDeck({
           masterDeckOverride: masterDeck,
@@ -353,6 +426,7 @@ export default function App() {
 
   useCrossfaderShortcuts({
     sweepBars: crossfaderSweepBars,
+    crossfaderPosition: crossfader,
     bpmInput: {
       bpmA: trackA?.bpm ?? null,
       bpmB: trackB?.bpm ?? null,
@@ -366,7 +440,16 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#08080c] text-zinc-100">
-      <TopBar audioReady={ready} />
+      <TopBar
+        audioReady={ready}
+        geekDataOpen={geekDataOpen}
+        onToggleGeekData={() => setGeekDataOpen((v) => !v)}
+      />
+      <GeekDataPanel
+        open={geekDataOpen}
+        telemetry={telemetry}
+        onClose={() => setGeekDataOpen(false)}
+      />
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(380px,1.45fr)_minmax(260px,1.1fr)_minmax(380px,1.45fr)]">
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-x border-zinc-800/40 bg-[#16161f]">
@@ -455,7 +538,7 @@ export default function App() {
               next[band] = v;
               return next;
             });
-            engine.setEq(0, band, v);
+            engine.setEq(0, UI_TO_ENGINE_EQ_BAND[band], v);
           }}
           onEqB={(band, v) => {
             setEqB((prev) => {
@@ -463,12 +546,24 @@ export default function App() {
               next[band] = v;
               return next;
             });
-            engine.setEq(1, band, v);
+            engine.setEq(1, UI_TO_ENGINE_EQ_BAND[band], v);
           }}
-          onFilterA={setFilterA}
-          onFilterB={setFilterB}
-          onTrimA={setTrimA}
-          onTrimB={setTrimB}
+          onFilterA={(v) => {
+            setFilterA(v);
+            engine.setFilter(0, (v - 50) / 50);
+          }}
+          onFilterB={(v) => {
+            setFilterB(v);
+            engine.setFilter(1, (v - 50) / 50);
+          }}
+          onTrimA={(v) => {
+            setTrimA(v);
+            engine.setTrim(0, v);
+          }}
+          onTrimB={(v) => {
+            setTrimB(v);
+            engine.setTrim(1, v);
+          }}
           onVolumeA={(v) => {
             setVolumeA(v);
             engine.setVolume(0, v);

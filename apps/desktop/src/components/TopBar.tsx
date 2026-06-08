@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 
 type TopBarProps = {
   audioReady: boolean;
+  geekDataOpen: boolean;
+  onToggleGeekData: () => void;
 };
 
-export function TopBar({ audioReady }: TopBarProps) {
+export function TopBar({ audioReady, geekDataOpen, onToggleGeekData }: TopBarProps) {
   const [time, setTime] = useState(() => new Date());
 
   useEffect(() => {
@@ -41,6 +43,18 @@ export function TopBar({ audioReady }: TopBarProps) {
         </button>
         <span className="text-[10px] text-zinc-600">FX</span>
         <span className="text-[10px] text-zinc-600">Looper</span>
+        <button
+          type="button"
+          onClick={onToggleGeekData}
+          className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+            geekDataOpen
+              ? "bg-violet-900/60 text-violet-200 ring-1 ring-violet-600/50"
+              : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+          }`}
+          title="Live engine audio values (not UI knob positions)"
+        >
+          Data for geeks
+        </button>
       </div>
 
       <div className="flex flex-col items-center">

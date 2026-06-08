@@ -142,7 +142,7 @@ export function ChannelStrip({
           max={100}
           unit="%"
           onChange={onFilter}
-          title="Filter (coming soon)"
+          title="Filter: left = low-pass, right = high-pass, center = bypass"
         />
         <div className="flex flex-col gap-0.5">
           {EQ_LABELS.map((eqLabel, i) => (
@@ -160,7 +160,7 @@ export function ChannelStrip({
           min={-12}
           max={12}
           onChange={onTrim}
-          title="Trim (coming soon)"
+          title="Input trim gain"
         />
       </div>
     );
@@ -185,7 +185,7 @@ export function ChannelStrip({
           max={100}
           unit="%"
           onChange={onFilter}
-          title="Filter (coming soon)"
+          title="Filter: left = low-pass, right = high-pass, center = bypass"
         />
         <Knob
           label="Trim"
@@ -193,7 +193,7 @@ export function ChannelStrip({
           min={-12}
           max={12}
           onChange={onTrim}
-          title="Trim (coming soon)"
+          title="Input trim gain"
         />
       </div>
     </div>

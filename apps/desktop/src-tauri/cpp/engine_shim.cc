@@ -39,6 +39,14 @@ void set_eq(Engine& engine, uint8_t deck, uint8_t band, float gain_db) {
     engine.set_eq(deck, band, gain_db);
 }
 
+void set_filter(Engine& engine, uint8_t deck, float amount) {
+    engine.set_filter(deck, amount);
+}
+
+void set_trim(Engine& engine, uint8_t deck, float gain_db) {
+    engine.set_trim(deck, gain_db);
+}
+
 void set_tempo(Engine& engine, uint8_t deck, float ratio) {
     engine.set_tempo(deck, ratio);
 }
@@ -90,6 +98,39 @@ float output_left(const Engine& engine) {
 
 float output_right(const Engine& engine) {
     return engine.output_levels().right;
+}
+
+EngineSnapshotDto engine_snapshot(const Engine& engine) {
+    const auto snap = engine.snapshot();
+    EngineSnapshotDto out;
+    out.output_left = snap.output_left;
+    out.output_right = snap.output_right;
+    out.crossfader = snap.crossfader;
+    out.crossfader_gain_a = snap.crossfader_gain_a;
+    out.crossfader_gain_b = snap.crossfader_gain_b;
+    out.deck_a_peak_left = snap.deck_a.peak_left;
+    out.deck_a_peak_right = snap.deck_a.peak_right;
+    out.deck_a_volume = snap.deck_a.volume;
+    out.deck_a_trim_gain = snap.deck_a.trim_gain;
+    out.deck_a_filter = snap.deck_a.filter_amount;
+    out.deck_a_eq_low_db = snap.deck_a.eq_low_db;
+    out.deck_a_eq_mid_db = snap.deck_a.eq_mid_db;
+    out.deck_a_eq_high_db = snap.deck_a.eq_high_db;
+    out.deck_a_tempo = snap.deck_a.tempo_ratio;
+    out.deck_a_key_lock = snap.deck_a.key_lock;
+    out.deck_a_loaded = snap.deck_a.loaded;
+    out.deck_b_peak_left = snap.deck_b.peak_left;
+    out.deck_b_peak_right = snap.deck_b.peak_right;
+    out.deck_b_volume = snap.deck_b.volume;
+    out.deck_b_trim_gain = snap.deck_b.trim_gain;
+    out.deck_b_filter = snap.deck_b.filter_amount;
+    out.deck_b_eq_low_db = snap.deck_b.eq_low_db;
+    out.deck_b_eq_mid_db = snap.deck_b.eq_mid_db;
+    out.deck_b_eq_high_db = snap.deck_b.eq_high_db;
+    out.deck_b_tempo = snap.deck_b.tempo_ratio;
+    out.deck_b_key_lock = snap.deck_b.key_lock;
+    out.deck_b_loaded = snap.deck_b.loaded;
+    return out;
 }
 
 } // namespace freedeck_bridge

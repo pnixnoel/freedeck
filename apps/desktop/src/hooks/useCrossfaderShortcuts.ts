@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import {
   CROSSFADER_POSITIONS,
-  barsToDurationMs,
   clampCrossfader,
   lerpCrossfader,
   matchCrossfaderShortcut,
   resolveSweepBpm,
+  resolveSweepFromCurrent,
+  sweepDurationMs,
   type CrossfaderShortcutAction,
   type ResolveCrossfaderBpmInput,
   type SweepBarCount,
@@ -14,15 +15,9 @@ import {
 export type UseCrossfaderShortcutsOptions = {
   sweepBars: SweepBarCount;
   bpmInput: ResolveCrossfaderBpmInput;
+  crossfaderPosition: number;
   onCrossfader: (value: number) => void;
 };
-
-function sweepEndpoints(action: "sweep-left" | "sweep-right"): { from: number; to: number } {
-  if (action === "sweep-left") {
-    return { from: CROSSFADER_POSITIONS.right, to: CROSSFADER_POSITIONS.left };
-  }
-  return { from: CROSSFADER_POSITIONS.left, to: CROSSFADER_POSITIONS.right };
-}
 
 function snapValue(action: Extract<CrossfaderShortcutAction, `snap-${string}`>): number {
   switch (action) {
@@ -38,16 +33,25 @@ function snapValue(action: Extract<CrossfaderShortcutAction, `snap-${string}`>):
 export function useCrossfaderShortcuts({
   sweepBars,
   bpmInput,
+  crossfaderPosition,
   onCrossfader,
 }: UseCrossfaderShortcutsOptions): void {
   const onCrossfaderRef = useRef(onCrossfader);
   const sweepBarsRef = useRef(sweepBars);
   const bpmInputRef = useRef(bpmInput);
+  const positionRef = useRef(crossfaderPosition);
   const rafRef = useRef<number | null>(null);
 
   onCrossfaderRef.current = onCrossfader;
   sweepBarsRef.current = sweepBars;
   bpmInputRef.current = bpmInput;
+  positionRef.current = crossfaderPosition;
+
+  const setCrossfader = (value: number) => {
+    const clamped = clampCrossfader(value);
+    positionRef.current = clamped;
+    onCrossfaderRef.current(clamped);
+  };
 
   const cancelSweep = () => {
     if (rafRef.current != null) {
@@ -58,15 +62,20 @@ export function useCrossfaderShortcuts({
 
   const startSweep = (action: "sweep-left" | "sweep-right") => {
     cancelSweep();
-    const { from, to } = sweepEndpoints(action);
+    const { from, to, travelFraction } = resolveSweepFromCurrent(
+      positionRef.current,
+      action,
+    );
+    if (travelFraction === 0) return;
+
     const bpm = resolveSweepBpm(action, bpmInputRef.current);
-    const durationMs = barsToDurationMs(sweepBarsRef.current, bpm);
+    const durationMs = sweepDurationMs(sweepBarsRef.current, bpm, travelFraction);
     const start = performance.now();
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / durationMs);
       const value = clampCrossfader(lerpCrossfader(from, to, t));
-      onCrossfaderRef.current(value);
+      setCrossfader(value);
       if (t < 1) {
         rafRef.current = requestAnimationFrame(tick);
       } else {
@@ -74,7 +83,6 @@ export function useCrossfaderShortcuts({
       }
     };
 
-    onCrossfaderRef.current(from);
     rafRef.current = requestAnimationFrame(tick);
   };
 
@@ -84,6 +92,11 @@ export function useCrossfaderShortcuts({
       if (!action) return;
 
       event.preventDefault();
+
+      if (event.repeat && (action === "sweep-left" || action === "sweep-right")) {
+        return;
+      }
+
       cancelSweep();
 
       if (action === "sweep-left" || action === "sweep-right") {
@@ -91,7 +104,7 @@ export function useCrossfaderShortcuts({
         return;
       }
 
-      onCrossfaderRef.current(snapValue(action));
+      setCrossfader(snapValue(action));
     };
 
     window.addEventListener("keydown", onKeyDown);

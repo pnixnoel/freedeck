@@ -11,7 +11,9 @@ import {
   lerpCrossfader,
   matchCrossfaderShortcut,
   resolveCrossfaderBpm,
+  resolveSweepFromCurrent,
   resolveSweepBpm,
+  sweepDurationMs,
   type CrossfaderShortcutAction,
 } from "./crossfaderMotion";
 
@@ -150,6 +152,49 @@ describe("matchCrossfaderShortcut", () => {
   it("ignores when target is an input", () => {
     const input = document.createElement("input");
     expect(matchCrossfaderShortcut(keyEvent("ArrowLeft", { target: input }))).toBeNull();
+  });
+});
+
+describe("resolveSweepFromCurrent", () => {
+  it("sweep-right from 0.9 uses current position and 5% travel", () => {
+    const result = resolveSweepFromCurrent(0.9, "sweep-right");
+    expect(result.from).toBe(0.9);
+    expect(result.to).toBe(1);
+    expect(result.travelFraction).toBeCloseTo(0.05);
+  });
+
+  it("sweep-right from -0.5 uses 75% travel", () => {
+    expect(resolveSweepFromCurrent(-0.5, "sweep-right")).toEqual({
+      from: -0.5,
+      to: 1,
+      travelFraction: 0.75,
+    });
+  });
+
+  it("sweep-right at full right is a no-op", () => {
+    expect(resolveSweepFromCurrent(1, "sweep-right")).toEqual({
+      from: 1,
+      to: 1,
+      travelFraction: 0,
+    });
+  });
+
+  it("sweep-left from 0.9 uses 95% travel", () => {
+    expect(resolveSweepFromCurrent(0.9, "sweep-left")).toEqual({
+      from: 0.9,
+      to: -1,
+      travelFraction: 0.95,
+    });
+  });
+});
+
+describe("sweepDurationMs", () => {
+  it("scales duration by travel fraction", () => {
+    expect(sweepDurationMs(8, 128, 0.05)).toBe(750);
+  });
+
+  it("returns 0 when already at destination", () => {
+    expect(sweepDurationMs(8, 128, 0)).toBe(0);
   });
 });
 

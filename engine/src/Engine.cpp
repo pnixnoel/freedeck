@@ -73,6 +73,16 @@ struct Engine::Impl : juce::AudioIODeviceCallback {
             decks_[deck]->set_eq(band, gain_db);
     }
 
+    void set_filter(uint8_t deck, float amount) {
+        if (deck <= 1)
+            decks_[deck]->set_filter(amount);
+    }
+
+    void set_trim(uint8_t deck, float gain_db) {
+        if (deck <= 1)
+            decks_[deck]->set_trim(gain_db);
+    }
+
     void set_tempo(uint8_t deck, float ratio) {
         if (deck <= 1)
             decks_[deck]->set_tempo_ratio(ratio);
@@ -124,6 +134,18 @@ struct Engine::Impl : juce::AudioIODeviceCallback {
         };
     }
 
+    EngineSnapshot snapshot() const {
+        EngineSnapshot snap;
+        snap.output_left = output_left_.load(std::memory_order_relaxed);
+        snap.output_right = output_right_.load(std::memory_order_relaxed);
+        snap.crossfader = mixer_.crossfader();
+        snap.crossfader_gain_a = mixer_.deck_gain(0);
+        snap.crossfader_gain_b = mixer_.deck_gain(1);
+        snap.deck_a = decks_[0]->snapshot();
+        snap.deck_b = decks_[1]->snapshot();
+        return snap;
+    }
+
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override {
         const int block_size = device->getCurrentBufferSizeSamples();
         const double sample_rate = device->getCurrentSampleRate();
@@ -150,6 +172,9 @@ struct Engine::Impl : juce::AudioIODeviceCallback {
 
         if (outputChannelData == nullptr || numOutputChannels < 2)
             return;
+
+        if (mix_buffer_.getNumSamples() < numSamples)
+            mix_buffer_.setSize(2, numSamples, false, false, true);
 
         float* left = outputChannelData[0];
         float* right = outputChannelData[1];
@@ -219,6 +244,12 @@ void Engine::set_volume(uint8_t deck, float gain) { impl_->set_volume(deck, gain
 void Engine::set_eq(uint8_t deck, uint8_t band, float gain_db) {
     impl_->set_eq(deck, band, gain_db);
 }
+void Engine::set_filter(uint8_t deck, float amount) {
+    impl_->set_filter(deck, amount);
+}
+void Engine::set_trim(uint8_t deck, float gain_db) {
+    impl_->set_trim(deck, gain_db);
+}
 void Engine::set_tempo(uint8_t deck, float ratio) { impl_->set_tempo(deck, ratio); }
 void Engine::set_key_lock(uint8_t deck, bool enabled) { impl_->set_key_lock(deck, enabled); }
 void Engine::set_crossfader(float position) { impl_->set_crossfader(position); }
@@ -236,6 +267,7 @@ TrackAnalysis Engine::track_analysis(uint8_t deck) const {
     return impl_->track_analysis(deck);
 }
 OutputLevels Engine::output_levels() const { return impl_->output_levels(); }
+EngineSnapshot Engine::snapshot() const { return impl_->snapshot(); }
 
 std::unique_ptr<Engine> new_engine() {
     return std::make_unique<Engine>();

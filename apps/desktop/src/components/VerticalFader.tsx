@@ -68,6 +68,7 @@ export function VerticalFader({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onDoubleClick={isMixer ? () => onChange(max) : undefined}
         role="slider"
         aria-label={label}
         aria-valuemin={min}
@@ -100,6 +101,11 @@ export function VerticalFader({
           />
         )}
       </div>
+      {isMixer && (
+        <span className="text-[8px] tabular-nums text-zinc-500">
+          {Math.round(pct)}%
+        </span>
+      )}
     </div>
   );
 }

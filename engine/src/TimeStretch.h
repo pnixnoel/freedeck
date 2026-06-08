@@ -21,6 +21,8 @@ public:
     void releaseResources() override;
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
 
+    bool is_prepared() const;
+
 private:
     juce::OptionalScopedPointer<juce::AudioSource> input_;
     int num_channels_;
@@ -28,6 +30,7 @@ private:
     double pitch_scale_{1.0};
     int block_size_{512};
     int last_input_samples_{0};
+    int start_delay_remaining_{0};
 
     std::unique_ptr<RubberBand::RubberBandStretcher> stretcher_;
     juce::AudioBuffer<float> input_buffer_;

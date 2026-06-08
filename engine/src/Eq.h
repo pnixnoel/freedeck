@@ -10,16 +10,17 @@ public:
     void prepare(const juce::dsp::ProcessSpec& spec);
     void reset();
     void set_gain_db(uint8_t band, float gain_db);
+    float gain_db(uint8_t band) const;
     void process(juce::AudioBuffer<float>& buffer);
 
 private:
     void update_coefficients();
 
-    juce::dsp::ProcessorChain<
+    using IirFilter = juce::dsp::ProcessorDuplicator<
         juce::dsp::IIR::Filter<float>,
-        juce::dsp::IIR::Filter<float>,
-        juce::dsp::IIR::Filter<float>>
-        chain_;
+        juce::dsp::IIR::Coefficients<float>>;
+
+    juce::dsp::ProcessorChain<IirFilter, IirFilter, IirFilter> chain_;
 
     juce::dsp::ProcessSpec spec_{};
     std::atomic<float> low_gain_{0.0f};

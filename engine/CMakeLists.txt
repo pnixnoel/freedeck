@@ -30,6 +30,7 @@ add_library(freedeck_engine STATIC
     src/Deck.cpp
     src/Mixer.cpp
     src/Eq.cpp
+    src/Filter.cpp
     src/Waveform.cpp
     src/TrackAnalysis.cpp
     src/TimeStretch.cpp
@@ -74,3 +75,15 @@ target_link_libraries(freedeck_track_analysis_test PRIVATE freedeck_engine juce:
 add_executable(freedeck_time_stretch_test test/time_stretch_test.cpp)
 target_include_directories(freedeck_time_stretch_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(freedeck_time_stretch_test PRIVATE freedeck_engine juce::juce_events rubberband)
+
+add_executable(freedeck_eq_test test/eq_test.cpp)
+target_include_directories(freedeck_eq_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(freedeck_eq_test PRIVATE freedeck_engine juce::juce_events)
+
+add_executable(freedeck_filter_test test/filter_test.cpp)
+target_include_directories(freedeck_filter_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(freedeck_filter_test PRIVATE freedeck_engine juce::juce_events)
+
+add_executable(freedeck_deck_audio_test test/deck_audio_test.cpp)
+target_include_directories(freedeck_deck_audio_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(freedeck_deck_audio_test PRIVATE freedeck_engine juce::juce_events rubberband)

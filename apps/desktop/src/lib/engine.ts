@@ -11,6 +11,31 @@ export type Telemetry = {
   deck_b_playing: boolean;
   output_left: number;
   output_right: number;
+  crossfader: number;
+  crossfader_gain_a: number;
+  crossfader_gain_b: number;
+  deck_a_peak_left: number;
+  deck_a_peak_right: number;
+  deck_a_volume: number;
+  deck_a_trim_gain: number;
+  deck_a_filter: number;
+  deck_a_eq_low_db: number;
+  deck_a_eq_mid_db: number;
+  deck_a_eq_high_db: number;
+  deck_a_tempo: number;
+  deck_a_key_lock: boolean;
+  deck_a_loaded: boolean;
+  deck_b_peak_left: number;
+  deck_b_peak_right: number;
+  deck_b_volume: number;
+  deck_b_trim_gain: number;
+  deck_b_filter: number;
+  deck_b_eq_low_db: number;
+  deck_b_eq_mid_db: number;
+  deck_b_eq_high_db: number;
+  deck_b_tempo: number;
+  deck_b_key_lock: boolean;
+  deck_b_loaded: boolean;
 };
 
 export type TrackMeta = {
@@ -93,6 +118,14 @@ export async function setEq(
   gainDb: number,
 ): Promise<void> {
   await safeInvoke("engine_set_eq", { deck, band, gainDb });
+}
+
+export async function setFilter(deck: 0 | 1, amount: number): Promise<void> {
+  await safeInvoke("engine_set_filter", { deck, amount });
+}
+
+export async function setTrim(deck: 0 | 1, gainDb: number): Promise<void> {
+  await safeInvoke("engine_set_trim", { deck, gainDb });
 }
 
 export async function setTempo(deck: 0 | 1, ratio: number): Promise<void> {

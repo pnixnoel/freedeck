@@ -9,6 +9,7 @@ namespace freedeck {
 class Mixer {
 public:
     void set_crossfader(float position);
+    float crossfader() const;
     float deck_gain(uint8_t deck) const;
 
 private:
@@ -17,6 +18,10 @@ private:
 
 inline void Mixer::set_crossfader(float position) {
     crossfader_.store(juce::jlimit(-1.0f, 1.0f, position), std::memory_order_relaxed);
+}
+
+inline float Mixer::crossfader() const {
+    return crossfader_.load(std::memory_order_relaxed);
 }
 
 inline float Mixer::deck_gain(uint8_t deck) const {

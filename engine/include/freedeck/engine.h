@@ -1,5 +1,6 @@
 #pragma once
 
+#include "freedeck/EngineSnapshot.h"
 #include "freedeck/TrackAnalysis.h"
 #include <cstdint>
 #include <memory>
@@ -36,6 +37,8 @@ public:
 
     void set_volume(uint8_t deck, float gain);
     void set_eq(uint8_t deck, uint8_t band, float gain_db);
+    void set_filter(uint8_t deck, float amount);
+    void set_trim(uint8_t deck, float gain_db);
     void set_tempo(uint8_t deck, float ratio);
     void set_key_lock(uint8_t deck, bool enabled);
     void set_crossfader(float position);
@@ -46,6 +49,7 @@ public:
     std::vector<float> waveform_peaks(uint8_t deck) const;
     TrackAnalysis track_analysis(uint8_t deck) const;
     OutputLevels output_levels() const;
+    EngineSnapshot snapshot() const;
 
 private:
     struct Impl;

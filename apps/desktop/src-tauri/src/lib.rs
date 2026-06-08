@@ -26,6 +26,31 @@ struct TelemetryEvent {
     deck_b_playing: bool,
     output_left: f32,
     output_right: f32,
+    crossfader: f32,
+    crossfader_gain_a: f32,
+    crossfader_gain_b: f32,
+    deck_a_peak_left: f32,
+    deck_a_peak_right: f32,
+    deck_a_volume: f32,
+    deck_a_trim_gain: f32,
+    deck_a_filter: f32,
+    deck_a_eq_low_db: f32,
+    deck_a_eq_mid_db: f32,
+    deck_a_eq_high_db: f32,
+    deck_a_tempo: f32,
+    deck_a_key_lock: bool,
+    deck_a_loaded: bool,
+    deck_b_peak_left: f32,
+    deck_b_peak_right: f32,
+    deck_b_volume: f32,
+    deck_b_trim_gain: f32,
+    deck_b_filter: f32,
+    deck_b_eq_low_db: f32,
+    deck_b_eq_mid_db: f32,
+    deck_b_eq_high_db: f32,
+    deck_b_tempo: f32,
+    deck_b_key_lock: bool,
+    deck_b_loaded: bool,
 }
 
 fn with_engine_mut<F, R>(holder: &EngineHolder, f: F) -> Result<R, String>
@@ -112,6 +137,27 @@ fn engine_set_eq(
 }
 
 #[tauri::command]
+fn engine_set_filter(
+    state: State<Arc<EngineHolder>>,
+    deck: u8,
+    amount: f32,
+) -> Result<(), String> {
+    let _ =
+        with_engine_mut(&state, |engine| engine_bridge::set_filter(engine, deck, amount));
+    Ok(())
+}
+
+#[tauri::command]
+fn engine_set_trim(
+    state: State<Arc<EngineHolder>>,
+    deck: u8,
+    gain_db: f32,
+) -> Result<(), String> {
+    let _ = with_engine_mut(&state, |engine| engine_bridge::set_trim(engine, deck, gain_db));
+    Ok(())
+}
+
+#[tauri::command]
 fn engine_set_tempo(
     state: State<Arc<EngineHolder>>,
     deck: u8,
@@ -187,6 +233,7 @@ fn spawn_telemetry_emitter(app: AppHandle, holder: Arc<EngineHolder>) {
             }
 
             let engine = guard.as_ref().expect("engine");
+            let snap = engine_bridge::engine_snapshot(engine);
             let payload = TelemetryEvent {
                 deck_a_position: engine_bridge::position_seconds(engine, 0),
                 deck_b_position: engine_bridge::position_seconds(engine, 1),
@@ -194,8 +241,33 @@ fn spawn_telemetry_emitter(app: AppHandle, holder: Arc<EngineHolder>) {
                 deck_b_duration: engine_bridge::duration_seconds(engine, 1),
                 deck_a_playing: engine_bridge::is_playing(engine, 0),
                 deck_b_playing: engine_bridge::is_playing(engine, 1),
-                output_left: engine_bridge::output_left(engine),
-                output_right: engine_bridge::output_right(engine),
+                output_left: snap.output_left,
+                output_right: snap.output_right,
+                crossfader: snap.crossfader,
+                crossfader_gain_a: snap.crossfader_gain_a,
+                crossfader_gain_b: snap.crossfader_gain_b,
+                deck_a_peak_left: snap.deck_a_peak_left,
+                deck_a_peak_right: snap.deck_a_peak_right,
+                deck_a_volume: snap.deck_a_volume,
+                deck_a_trim_gain: snap.deck_a_trim_gain,
+                deck_a_filter: snap.deck_a_filter,
+                deck_a_eq_low_db: snap.deck_a_eq_low_db,
+                deck_a_eq_mid_db: snap.deck_a_eq_mid_db,
+                deck_a_eq_high_db: snap.deck_a_eq_high_db,
+                deck_a_tempo: snap.deck_a_tempo,
+                deck_a_key_lock: snap.deck_a_key_lock,
+                deck_a_loaded: snap.deck_a_loaded,
+                deck_b_peak_left: snap.deck_b_peak_left,
+                deck_b_peak_right: snap.deck_b_peak_right,
+                deck_b_volume: snap.deck_b_volume,
+                deck_b_trim_gain: snap.deck_b_trim_gain,
+                deck_b_filter: snap.deck_b_filter,
+                deck_b_eq_low_db: snap.deck_b_eq_low_db,
+                deck_b_eq_mid_db: snap.deck_b_eq_mid_db,
+                deck_b_eq_high_db: snap.deck_b_eq_high_db,
+                deck_b_tempo: snap.deck_b_tempo,
+                deck_b_key_lock: snap.deck_b_key_lock,
+                deck_b_loaded: snap.deck_b_loaded,
             };
             drop(guard);
 
@@ -222,6 +294,8 @@ pub fn run() {
             engine_seek,
             engine_set_volume,
             engine_set_eq,
+            engine_set_filter,
+            engine_set_trim,
             engine_set_tempo,
             engine_set_key_lock,
             engine_set_crossfader,
