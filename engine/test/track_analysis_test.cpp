@@ -231,6 +231,22 @@ void test_analyze_track_includes_beatgrid_offset() {
     std::cout << "test_analyze_track_includes_beatgrid_offset OK\n";
 }
 
+#ifdef FREEDECK_USE_AUBIO
+void test_aubio_analyzer() {
+    const auto mono = make_click_mono(120.0, 10.0);
+    auto res = freedeck::detect_bpm_and_beats_aubio(mono, 11025.0);
+    assert(res.has_value());
+    assert(res->bpm_valid);
+    assert(res->bpm >= 115.f && res->bpm <= 125.f);
+    assert(res->beats_valid);
+    assert(res->beats.size() > 5);
+    for (size_t i = 1; i < res->beats.size(); ++i) {
+        assert(res->beats[i] > res->beats[i - 1]);
+    }
+    std::cout << "test_aubio_analyzer OK (" << res->bpm << " BPM, " << res->beats.size() << " beats)\n";
+}
+#endif
+
 } // namespace
 
 int main() {
@@ -249,6 +265,9 @@ int main() {
     test_detect_beatgrid_offset_click_at_start();
     test_detect_beatgrid_offset_delayed_downbeat();
     test_analyze_track_includes_beatgrid_offset();
+#ifdef FREEDECK_USE_AUBIO
+    test_aubio_analyzer();
+#endif
     std::cout << "All track analysis tests passed.\n";
     return 0;
 }

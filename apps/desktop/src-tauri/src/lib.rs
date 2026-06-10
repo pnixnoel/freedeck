@@ -202,6 +202,8 @@ struct TrackAnalysisPayload {
     key_valid: bool,
     beatgrid_offset_seconds: f32,
     beatgrid_offset_valid: bool,
+    beats: Vec<f64>,
+    beats_valid: bool,
 }
 
 #[tauri::command]
@@ -218,6 +220,8 @@ fn engine_track_analysis(
             key_valid: dto.key_valid,
             beatgrid_offset_seconds: dto.beatgrid_offset_seconds,
             beatgrid_offset_valid: dto.beatgrid_offset_valid,
+            beats: dto.beats,
+            beats_valid: dto.beats_valid,
         }
     })
 }

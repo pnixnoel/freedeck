@@ -60,11 +60,72 @@ bool Deck::load(const juce::File& file) {
     duration_seconds_ =
         static_cast<double>(analysis_reader->lengthInSamples) / analysis_reader->sampleRate;
 
-    const auto container_tags = parse_container_tags(file);
-    const auto mono = read_mono_preview(*analysis_reader, 90.0, 11025.0);
-    analysis_ = analyze_track(
-        *analysis_reader, mono, 11025.0,
-        container_tags.getAllKeys().size() > 0 ? &container_tags : nullptr);
+    juce::File sidecar_file = file.getParentDirectory().getChildFile(file.getFileName() + ".json");
+    bool loaded_from_sidecar = false;
+    analysis_ = TrackAnalysis(); // Reset
+
+    if (sidecar_file.existsAsFile()) {
+        const juce::String json_str = sidecar_file.loadFileAsString();
+        const juce::var parsed = juce::JSON::parse(json_str);
+        if (parsed.isObject()) {
+            const double bpm = parsed.getProperty("bpm", 0.0);
+            const double grid_offset = parsed.getProperty("grid_offset_seconds", 0.0);
+            const juce::var beats_val = parsed.getProperty("beats", juce::var());
+            const juce::String key = parsed.getProperty("key", "").toString();
+
+            if (bpm > 0.0) {
+                analysis_.bpm = static_cast<float>(bpm);
+                analysis_.bpm_valid = true;
+                analysis_.bpm_source = AnalysisSource::Audio;
+                analysis_.beatgrid_offset_seconds = static_cast<float>(grid_offset);
+                analysis_.beatgrid_offset_valid = true;
+
+                if (key.isNotEmpty()) {
+                    analysis_.key = key.toStdString();
+                    analysis_.key_valid = true;
+                    analysis_.key_source = AnalysisSource::Audio;
+                }
+
+                if (beats_val.isArray()) {
+                    analysis_.beats.clear();
+                    const auto* arr = beats_val.getArray();
+                    for (int i = 0; i < arr->size(); ++i) {
+                        analysis_.beats.push_back((*arr)[i]);
+                    }
+                    analysis_.beats_valid = true;
+                }
+                loaded_from_sidecar = true;
+            }
+        }
+    }
+
+    if (!loaded_from_sidecar) {
+        const auto container_tags = parse_container_tags(file);
+        const auto mono = read_mono_preview(*analysis_reader, 90.0, 11025.0);
+        analysis_ = analyze_track(
+            *analysis_reader, mono, 11025.0,
+            container_tags.getAllKeys().size() > 0 ? &container_tags : nullptr);
+
+        // Save sidecar next to the audio file
+        juce::DynamicObject::Ptr json_obj = new juce::DynamicObject();
+        json_obj->setProperty("version", 1);
+        json_obj->setProperty("file_path", file.getFullPathName());
+        json_obj->setProperty("bpm", analysis_.bpm);
+        json_obj->setProperty("key", juce::String(analysis_.key));
+        json_obj->setProperty("grid_offset_seconds", analysis_.beatgrid_offset_seconds);
+        
+        juce::Array<juce::var> beats_arr;
+        for (double b : analysis_.beats) {
+            beats_arr.add(b);
+        }
+        json_obj->setProperty("beats", beats_arr);
+        json_obj->setProperty("edited", false);
+
+        juce::var json_var(json_obj.get());
+        juce::String json_text = juce::JSON::toString(json_var);
+        sidecar_file.replaceWithText(json_text);
+    }
+
     analysis_reader.reset();
 
     auto reader = std::unique_ptr<juce::AudioFormatReader>(

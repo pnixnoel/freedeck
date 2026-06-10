@@ -89,6 +89,10 @@ TrackAnalysisDto track_analysis(const Engine& engine, uint8_t deck) {
     out.key_valid = analysis.key_valid;
     out.beatgrid_offset_seconds = analysis.beatgrid_offset_seconds;
     out.beatgrid_offset_valid = analysis.beatgrid_offset_valid;
+    out.beats_valid = analysis.beats_valid;
+    for (double b : analysis.beats) {
+        out.beats.push_back(b);
+    }
     return out;
 }
 

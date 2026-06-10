@@ -51,6 +51,8 @@ export type TrackAnalysis = {
   key_valid: boolean;
   beatgrid_offset_seconds: number;
   beatgrid_offset_valid: boolean;
+  beats: number[];
+  beats_valid: boolean;
 };
 
 export function isTauri(): boolean {

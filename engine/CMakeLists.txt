@@ -52,6 +52,15 @@ target_compile_definitions(freedeck_engine
         JUCE_MODAL_LOOPS_PERMITTED=1
 )
 
+option(FREEDECK_USE_AUBIO "Use Aubio for track analysis" OFF)
+
+if(FREEDECK_USE_AUBIO)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(AUBIO REQUIRED IMPORTED_TARGET aubio)
+    target_compile_definitions(freedeck_engine PUBLIC FREEDECK_USE_AUBIO=1)
+    target_link_libraries(freedeck_engine PUBLIC PkgConfig::AUBIO)
+endif()
+
 target_link_libraries(freedeck_engine
     PUBLIC
         juce::juce_core

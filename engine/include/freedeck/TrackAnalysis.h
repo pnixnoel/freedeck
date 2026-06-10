@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace freedeck {
 
@@ -16,6 +17,8 @@ struct TrackAnalysis {
     AnalysisSource key_source = AnalysisSource::Unknown;
     float beatgrid_offset_seconds = 0.f;
     bool beatgrid_offset_valid = false;
+    std::vector<double> beats;
+    bool beats_valid = false;
 };
 
 } // namespace freedeck

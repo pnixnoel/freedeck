@@ -7,6 +7,8 @@ mod ffi {
         key_valid: bool,
         beatgrid_offset_seconds: f32,
         beatgrid_offset_valid: bool,
+        beats: Vec<f64>,
+        beats_valid: bool,
     }
 
     struct EngineSnapshotDto {

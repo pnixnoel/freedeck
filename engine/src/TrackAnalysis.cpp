@@ -590,6 +590,22 @@ TrackAnalysis analyze_track(
         out.key_source = AnalysisSource::Metadata;
     }
 
+#ifdef FREEDECK_USE_AUBIO
+    if (mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4)) {
+        if (auto aubio_res = detect_bpm_and_beats_aubio(mono_preview, preview_sample_rate)) {
+            if (!out.bpm_valid) {
+                out.bpm = aubio_res->bpm;
+                out.bpm_valid = true;
+                out.bpm_source = AnalysisSource::Audio;
+            }
+            out.beats = aubio_res->beats;
+            out.beats_valid = true;
+            out.beatgrid_offset_seconds = aubio_res->beatgrid_offset_seconds;
+            out.beatgrid_offset_valid = true;
+        }
+    }
+#endif
+
     if (!out.bpm_valid &&
         mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4)) {
         if (auto bpm = detect_bpm(mono_preview, preview_sample_rate)) {
@@ -606,7 +622,7 @@ TrackAnalysis analyze_track(
             out.key_source = AnalysisSource::Audio;
         }
     }
-    if (out.bpm_valid &&
+    if (out.bpm_valid && !out.beatgrid_offset_valid &&
         mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4)) {
         if (auto offset = detect_beatgrid_offset(mono_preview, preview_sample_rate, out.bpm)) {
             out.beatgrid_offset_seconds = *offset;
@@ -615,5 +631,81 @@ TrackAnalysis analyze_track(
     }
     return out;
 }
+
+#ifdef FREEDECK_USE_AUBIO
+#include <aubio/aubio.h>
+
+std::optional<TrackAnalysis> detect_bpm_and_beats_aubio(
+    const std::vector<float>& mono,
+    double sample_rate) {
+    if (mono.size() < 4096 || sample_rate <= 0.0)
+        return std::nullopt;
+
+    uint_t win_size = 1024;
+    uint_t hop_size = 512;
+
+    aubio_tempo_t* tempo = new_aubio_tempo("default", win_size, hop_size, static_cast<uint_t>(sample_rate));
+    if (tempo == nullptr)
+        return std::nullopt;
+
+    fvec_t* in = new_fvec(hop_size);
+    fvec_t* out = new_fvec(1);
+    if (in == nullptr || out == nullptr) {
+        if (tempo) del_aubio_tempo(tempo);
+        if (in) del_fvec(in);
+        if (out) del_fvec(out);
+        return std::nullopt;
+    }
+
+    std::vector<double> detected_beats;
+    size_t offset = 0;
+    while (offset + hop_size <= mono.size()) {
+        for (uint_t i = 0; i < hop_size; ++i) {
+            in->data[i] = mono[offset + i];
+        }
+
+        aubio_tempo_do(tempo, in, out);
+
+        if (out->data[0] != 0.0f) {
+            double beat_time = aubio_tempo_get_last_s(tempo);
+            if (beat_time > 0.0) {
+                if (detected_beats.empty() || beat_time > detected_beats.back() + 0.05) {
+                    detected_beats.push_back(beat_time);
+                }
+            }
+        }
+
+        offset += hop_size;
+    }
+
+    float bpm = aubio_tempo_get_bpm(tempo);
+    float confidence = aubio_tempo_get_confidence(tempo);
+
+    del_aubio_tempo(tempo);
+    del_fvec(in);
+    del_fvec(out);
+
+    bpm = resolve_bpm_with_prior(bpm);
+
+    if (bpm < 40.f || bpm > 250.f || std::isnan(bpm)) {
+        return std::nullopt;
+    }
+
+    if (confidence < 0.05f || detected_beats.empty()) {
+        return std::nullopt;
+    }
+
+    TrackAnalysis res;
+    res.bpm = bpm;
+    res.bpm_valid = true;
+    res.bpm_source = AnalysisSource::Audio;
+    res.beats = detected_beats;
+    res.beats_valid = true;
+    res.beatgrid_offset_seconds = static_cast<float>(detected_beats.front());
+    res.beatgrid_offset_valid = true;
+
+    return res;
+}
+#endif
 
 } // namespace freedeck

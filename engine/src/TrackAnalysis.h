@@ -33,4 +33,10 @@ TrackAnalysis analyze_track(
     double preview_sample_rate,
     const juce::StringPairArray* extra_metadata = nullptr);
 
+#ifdef FREEDECK_USE_AUBIO
+std::optional<TrackAnalysis> detect_bpm_and_beats_aubio(
+    const std::vector<float>& mono,
+    double sample_rate);
+#endif
+
 } // namespace freedeck

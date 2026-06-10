@@ -37,6 +37,8 @@ struct TrackAnalysisDto final {
     bool key_valid;
     float beatgrid_offset_seconds;
     bool beatgrid_offset_valid;
+    rust::Vec<double> beats;
+    bool beats_valid;
 };
 #endif
 
