@@ -19,6 +19,13 @@ struct OutputLevels {
     float right = 0.0f;
 };
 
+struct LicenseInfo {
+    bool aubio_linked = false;
+    bool essentia_linked = false;
+    std::string aubio_license;
+    std::string essentia_license;
+};
+
 class Engine {
 public:
     Engine();
@@ -43,13 +50,21 @@ public:
     void set_key_lock(uint8_t deck, bool enabled);
     void set_crossfader(float position);
 
+    void set_sync(uint8_t deck, bool enabled);
+    void set_master(uint8_t deck);
+    void set_beatgrid(uint8_t deck, double bpm, double offset);
+    void set_quantize(uint8_t deck, bool enabled);
+
     bool is_playing(uint8_t deck) const;
+    bool quantize_enabled(uint8_t deck) const;
     double position_seconds(uint8_t deck) const;
     double duration_seconds(uint8_t deck) const;
     std::vector<float> waveform_peaks(uint8_t deck) const;
     TrackAnalysis track_analysis(uint8_t deck) const;
+    std::vector<double> track_beats(uint8_t deck) const;
     OutputLevels output_levels() const;
     EngineSnapshot snapshot() const;
+    LicenseInfo license_info() const;
 
 private:
     struct Impl;

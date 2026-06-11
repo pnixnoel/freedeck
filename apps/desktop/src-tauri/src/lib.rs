@@ -40,6 +40,9 @@ struct TelemetryEvent {
     deck_a_tempo: f32,
     deck_a_key_lock: bool,
     deck_a_loaded: bool,
+    deck_a_synced: bool,
+    deck_a_is_master: bool,
+    deck_a_sync_phase_error: f32,
     deck_b_peak_left: f32,
     deck_b_peak_right: f32,
     deck_b_volume: f32,
@@ -51,6 +54,11 @@ struct TelemetryEvent {
     deck_b_tempo: f32,
     deck_b_key_lock: bool,
     deck_b_loaded: bool,
+    deck_b_synced: bool,
+    deck_b_is_master: bool,
+    deck_b_sync_phase_error: f32,
+    master_deck: i32,
+    buffer_size_ms: f32,
 }
 
 fn with_engine_mut<F, R>(holder: &EngineHolder, f: F) -> Result<R, String>
@@ -187,6 +195,77 @@ fn engine_set_crossfader(
 }
 
 #[tauri::command]
+fn engine_set_sync(
+    state: State<Arc<EngineHolder>>,
+    deck: u8,
+    enabled: bool,
+) -> Result<(), String> {
+    let _ = with_engine_mut(&state, |engine| engine_bridge::set_sync(engine, deck, enabled));
+    Ok(())
+}
+
+#[tauri::command]
+fn engine_set_quantize(
+    state: State<Arc<EngineHolder>>,
+    deck: u8,
+    enabled: bool,
+) -> Result<(), String> {
+    let _ = with_engine_mut(&state, |engine| engine_bridge::set_quantize(engine, deck, enabled));
+    Ok(())
+}
+
+#[tauri::command]
+fn engine_set_master(
+    state: State<Arc<EngineHolder>>,
+    deck: u8,
+) -> Result<(), String> {
+    let _ = with_engine_mut(&state, |engine| engine_bridge::set_master(engine, deck));
+    Ok(())
+}
+
+#[tauri::command]
+fn engine_set_beatgrid(
+    state: State<Arc<EngineHolder>>,
+    deck: u8,
+    bpm: f64,
+    offset: f64,
+) -> Result<(), String> {
+    let _ = with_engine_mut(&state, |engine| engine_bridge::set_beatgrid(engine, deck, bpm, offset));
+    Ok(())
+}
+
+#[tauri::command]
+fn engine_track_beats(
+    state: State<Arc<EngineHolder>>,
+    deck: u8,
+) -> Result<Vec<f64>, String> {
+    with_engine(&state, |engine| engine_bridge::track_beats(engine, deck))
+}
+
+#[derive(Clone, Serialize)]
+struct LicenseInfoPayload {
+    aubio_linked: bool,
+    essentia_linked: bool,
+    aubio_license: String,
+    essentia_license: String,
+}
+
+#[tauri::command]
+fn engine_get_license_info(
+    state: State<Arc<EngineHolder>>,
+) -> Result<LicenseInfoPayload, String> {
+    with_engine(&state, |engine| {
+        let info = engine_bridge::license_info(engine);
+        LicenseInfoPayload {
+            aubio_linked: info.aubio_linked,
+            essentia_linked: info.essentia_linked,
+            aubio_license: info.aubio_license.clone(),
+            essentia_license: info.essentia_license.clone(),
+        }
+    })
+}
+
+#[tauri::command]
 fn engine_waveform_peaks(
     state: State<Arc<EngineHolder>>,
     deck: u8,
@@ -261,6 +340,9 @@ fn spawn_telemetry_emitter(app: AppHandle, holder: Arc<EngineHolder>) {
                 deck_a_tempo: snap.deck_a_tempo,
                 deck_a_key_lock: snap.deck_a_key_lock,
                 deck_a_loaded: snap.deck_a_loaded,
+                deck_a_synced: snap.deck_a_synced,
+                deck_a_is_master: snap.deck_a_is_master,
+                deck_a_sync_phase_error: snap.deck_a_sync_phase_error,
                 deck_b_peak_left: snap.deck_b_peak_left,
                 deck_b_peak_right: snap.deck_b_peak_right,
                 deck_b_volume: snap.deck_b_volume,
@@ -272,6 +354,11 @@ fn spawn_telemetry_emitter(app: AppHandle, holder: Arc<EngineHolder>) {
                 deck_b_tempo: snap.deck_b_tempo,
                 deck_b_key_lock: snap.deck_b_key_lock,
                 deck_b_loaded: snap.deck_b_loaded,
+                deck_b_synced: snap.deck_b_synced,
+                deck_b_is_master: snap.deck_b_is_master,
+                deck_b_sync_phase_error: snap.deck_b_sync_phase_error,
+                master_deck: snap.master_deck,
+                buffer_size_ms: snap.buffer_size_ms,
             };
             drop(guard);
 
@@ -305,6 +392,12 @@ pub fn run() {
             engine_set_crossfader,
             engine_waveform_peaks,
             engine_track_analysis,
+            engine_set_sync,
+            engine_set_master,
+            engine_set_beatgrid,
+            engine_track_beats,
+            engine_set_quantize,
+            engine_get_license_info,
         ])
         .setup(move |app| {
             spawn_telemetry_emitter(app.handle().clone(), holder);

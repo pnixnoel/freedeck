@@ -21,4 +21,10 @@ struct TrackAnalysis {
     bool beats_valid = false;
 };
 
+std::vector<double> detect_beats_dp(
+    const std::vector<float>& mono,
+    double sample_rate,
+    float bpm,
+    double duration);
+
 } // namespace freedeck

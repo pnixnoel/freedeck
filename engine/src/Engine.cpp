@@ -1,6 +1,7 @@
 #include "freedeck/engine.h"
 #include "Deck.h"
 #include "Mixer.h"
+#include "SyncController.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -97,6 +98,40 @@ struct Engine::Impl : juce::AudioIODeviceCallback {
         mixer_.set_crossfader(position);
     }
 
+    void set_sync(uint8_t deck, bool enabled) {
+        sync_controller_.set_sync(deck, enabled);
+    }
+
+    void set_master(uint8_t deck) {
+        sync_controller_.set_master(deck);
+    }
+
+    void set_beatgrid(uint8_t deck, double bpm, double offset) {
+        if (deck <= 1) {
+            decks_[deck]->set_beatgrid(bpm, offset);
+        }
+    }
+
+    void set_quantize(uint8_t deck, bool enabled) {
+        if (deck <= 1) {
+            decks_[deck]->set_quantize(enabled);
+        }
+    }
+
+    bool quantize_enabled(uint8_t deck) const {
+        if (deck > 1) return false;
+        return decks_[deck]->quantize_enabled();
+    }
+
+    std::vector<double> track_beats(uint8_t deck) const {
+        if (deck > 1) return {};
+        auto beats_ptr = decks_[deck]->beats();
+        if (beats_ptr) {
+            return *beats_ptr;
+        }
+        return {};
+    }
+
     bool is_playing(uint8_t deck) const {
         if (deck > 1)
             return false;
@@ -143,6 +178,18 @@ struct Engine::Impl : juce::AudioIODeviceCallback {
         snap.crossfader_gain_b = mixer_.deck_gain(1);
         snap.deck_a = decks_[0]->snapshot();
         snap.deck_b = decks_[1]->snapshot();
+
+        snap.master_deck = sync_controller_.master_deck();
+        snap.buffer_size_ms = buffer_size_ms_.load(std::memory_order_relaxed);
+
+        snap.deck_a.synced = sync_controller_.is_sync_enabled(0);
+        snap.deck_a.is_master = (snap.master_deck == 0);
+        snap.deck_a.sync_phase_error = sync_controller_.get_phase_error(0);
+
+        snap.deck_b.synced = sync_controller_.is_sync_enabled(1);
+        snap.deck_b.is_master = (snap.master_deck == 1);
+        snap.deck_b.sync_phase_error = sync_controller_.get_phase_error(1);
+
         return snap;
     }
 
@@ -154,6 +201,12 @@ struct Engine::Impl : juce::AudioIODeviceCallback {
             deck->prepare_to_play(block_size, sample_rate);
 
         mix_buffer_.setSize(2, block_size);
+
+        if (sample_rate > 0.0) {
+            buffer_size_ms_.store(static_cast<float>(block_size) * 1000.0f / static_cast<float>(sample_rate), std::memory_order_relaxed);
+        } else {
+            buffer_size_ms_.store(0.0f, std::memory_order_relaxed);
+        }
     }
 
     void audioDeviceStopped() override {
@@ -172,6 +225,8 @@ struct Engine::Impl : juce::AudioIODeviceCallback {
 
         if (outputChannelData == nullptr || numOutputChannels < 2)
             return;
+
+        sync_controller_.update_sync_trim(*decks_[0], *decks_[1]);
 
         if (mix_buffer_.getNumSamples() < numSamples)
             mix_buffer_.setSize(2, numSamples, false, false, true);
@@ -225,6 +280,8 @@ struct Engine::Impl : juce::AudioIODeviceCallback {
     std::atomic<float> output_right_{0.0f};
     bool audio_started_{false};
     std::unique_ptr<juce::ScopedJuceInitialiser_GUI> juce_init_;
+    SyncController sync_controller_;
+    std::atomic<float> buffer_size_ms_{0.0f};
 };
 
 Engine::Engine() : impl_(std::make_unique<Impl>()) {}
@@ -253,7 +310,18 @@ void Engine::set_trim(uint8_t deck, float gain_db) {
 void Engine::set_tempo(uint8_t deck, float ratio) { impl_->set_tempo(deck, ratio); }
 void Engine::set_key_lock(uint8_t deck, bool enabled) { impl_->set_key_lock(deck, enabled); }
 void Engine::set_crossfader(float position) { impl_->set_crossfader(position); }
+void Engine::set_sync(uint8_t deck, bool enabled) { impl_->set_sync(deck, enabled); }
+void Engine::set_master(uint8_t deck) { impl_->set_master(deck); }
+void Engine::set_beatgrid(uint8_t deck, double bpm, double offset) {
+    impl_->set_beatgrid(deck, bpm, offset);
+}
+void Engine::set_quantize(uint8_t deck, bool enabled) {
+    impl_->set_quantize(deck, enabled);
+}
 bool Engine::is_playing(uint8_t deck) const { return impl_->is_playing(deck); }
+bool Engine::quantize_enabled(uint8_t deck) const {
+    return impl_->quantize_enabled(deck);
+}
 double Engine::position_seconds(uint8_t deck) const {
     return impl_->position_seconds(deck);
 }
@@ -266,8 +334,31 @@ std::vector<float> Engine::waveform_peaks(uint8_t deck) const {
 TrackAnalysis Engine::track_analysis(uint8_t deck) const {
     return impl_->track_analysis(deck);
 }
+std::vector<double> Engine::track_beats(uint8_t deck) const {
+    return impl_->track_beats(deck);
+}
 OutputLevels Engine::output_levels() const { return impl_->output_levels(); }
 EngineSnapshot Engine::snapshot() const { return impl_->snapshot(); }
+
+LicenseInfo Engine::license_info() const {
+    LicenseInfo info;
+#ifdef FREEDECK_USE_AUBIO
+    info.aubio_linked = true;
+    info.aubio_license = "GPL-3.0";
+#else
+    info.aubio_linked = false;
+    info.aubio_license = "";
+#endif
+
+#ifdef FREEDECK_USE_ESSENTIA
+    info.essentia_linked = true;
+    info.essentia_license = "AGPL-3.0";
+#else
+    info.essentia_linked = false;
+    info.essentia_license = "";
+#endif
+    return info;
+}
 
 std::unique_ptr<Engine> new_engine() {
     return std::make_unique<Engine>();

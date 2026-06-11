@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cctype>
 #include <cstring>
+#include <mutex>
 
 namespace freedeck {
 
@@ -571,6 +572,129 @@ static juce::StringPairArray merge_metadata(
     return merged;
 }
 
+std::vector<double> detect_beats_dp(
+    const std::vector<float>& mono,
+    double sample_rate,
+    float bpm,
+    double duration) {
+    
+    if (mono.size() < 4096 || sample_rate <= 0.0 || bpm <= 0.f)
+        return {};
+
+    constexpr int kHop = 512;
+    std::vector<float> energy;
+    energy.reserve(mono.size() / static_cast<size_t>(kHop) + 1);
+
+    for (size_t start = 0; start < mono.size(); start += static_cast<size_t>(kHop)) {
+        const size_t end = juce::jmin(start + static_cast<size_t>(kHop), mono.size());
+        float frame_energy = 0.f;
+        for (size_t i = start; i < end; ++i)
+            frame_energy += mono[i] * mono[i];
+        energy.push_back(frame_energy);
+    }
+
+    if (energy.size() < 16)
+        return {};
+
+    std::vector<float> onset(energy.size(), 0.f);
+    onset[0] = energy[0];
+    for (size_t i = 1; i < energy.size(); ++i) {
+        onset[i] = juce::jmax(0.f, energy[i] - energy[i - 1]);
+    }
+
+    const double hop_hz = sample_rate / static_cast<double>(kHop);
+    const double delta = hop_hz * 60.0 / bpm;
+
+    int N = static_cast<int>(onset.size());
+    std::vector<double> C(N, 0.0);
+    std::vector<int> P(N, -1);
+
+    constexpr double lambda = 5.0;
+
+    for (int i = 0; i < N; ++i) {
+        C[i] = onset[i];
+        P[i] = -1;
+
+        int search_min = static_cast<int>(std::round(i - 2.0 * delta));
+        int search_max = static_cast<int>(std::round(i - 0.5 * delta));
+        search_min = std::max(0, search_min);
+        search_max = std::max(0, search_max);
+
+        double best_prev_score = -1e9;
+        int best_prev_idx = -1;
+
+        for (int j = search_min; j <= search_max; ++j) {
+            double interval = i - j;
+            if (interval <= 0) continue;
+            double ratio = interval / delta;
+            double cost = -lambda * std::pow(std::log2(ratio), 2.0);
+            double score = C[j] + cost;
+            if (score > best_prev_score) {
+                best_prev_score = score;
+                best_prev_idx = j;
+            }
+        }
+
+        if (best_prev_idx != -1 && best_prev_score + onset[i] > C[i]) {
+            C[i] = onset[i] + best_prev_score;
+            P[i] = best_prev_idx;
+        }
+    }
+
+    int best_end_idx = -1;
+    double best_end_score = -1e9;
+    int search_start = std::max(0, static_cast<int>(N - 3.0 * delta));
+    for (int i = search_start; i < N; ++i) {
+        if (C[i] > best_end_score) {
+            best_end_score = C[i];
+            best_end_idx = i;
+        }
+    }
+
+    if (best_end_idx == -1)
+        return {};
+
+    std::vector<int> beat_frames;
+    int curr = best_end_idx;
+    while (curr != -1) {
+        beat_frames.push_back(curr);
+        curr = P[curr];
+    }
+    std::reverse(beat_frames.begin(), beat_frames.end());
+
+    std::vector<double> beats;
+    for (int f : beat_frames) {
+        double t = static_cast<double>(f) * kHop / sample_rate;
+        beats.push_back(t);
+    }
+
+    // Extrapolate beats to the end of the track
+    if (beats.size() >= 2 && duration > beats.back()) {
+        size_t num_to_average = std::min(beats.size() - 1, size_t(8));
+        double sum_intervals = 0.0;
+        for (size_t i = beats.size() - num_to_average; i < beats.size(); ++i) {
+            sum_intervals += (beats[i] - beats[i - 1]);
+        }
+        double avg_interval = sum_intervals / num_to_average;
+        if (avg_interval <= 0.0) avg_interval = 60.0 / bpm;
+
+        double t = beats.back() + avg_interval;
+        while (t < duration) {
+            beats.push_back(t);
+            t += avg_interval;
+        }
+    } else if (beats.empty() && bpm > 0.f) {
+        double beat_duration = 60.0 / bpm;
+        double t = 0.0;
+        while (t < duration) {
+            beats.push_back(t);
+            t += beat_duration;
+        }
+    }
+
+    return beats;
+}
+
 TrackAnalysis analyze_track(
     juce::AudioFormatReader& reader,
     const std::vector<float>& mono_preview,
@@ -589,6 +713,34 @@ TrackAnalysis analyze_track(
         out.key_valid = true;
         out.key_source = AnalysisSource::Metadata;
     }
+
+#ifdef FREEDECK_USE_ESSENTIA
+    if (mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4)) {
+        if (!out.bpm_valid) {
+            std::vector<double> essentia_beats;
+            float essentia_bpm = 0.0f;
+            EssentiaBpmDetector detector(preview_sample_rate);
+            if (detector.process(mono_preview, essentia_beats, essentia_bpm)) {
+                out.bpm = essentia_bpm;
+                out.bpm_valid = true;
+                out.bpm_source = AnalysisSource::Audio;
+                out.beats = essentia_beats;
+                out.beats_valid = true;
+                out.beatgrid_offset_seconds = essentia_beats.empty() ? 0.0f : static_cast<float>(essentia_beats.front());
+                out.beatgrid_offset_valid = true;
+            }
+        }
+        if (!out.key_valid && mono_preview.size() > static_cast<size_t>(preview_sample_rate * 8)) {
+            std::string essentia_key;
+            EssentiaKeyDetector detector(preview_sample_rate);
+            if (detector.process(mono_preview, essentia_key)) {
+                out.key = essentia_key;
+                out.key_valid = true;
+                out.key_source = AnalysisSource::Audio;
+            }
+        }
+    }
+#endif
 
 #ifdef FREEDECK_USE_AUBIO
     if (mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4)) {
@@ -622,6 +774,18 @@ TrackAnalysis analyze_track(
             out.key_source = AnalysisSource::Audio;
         }
     }
+
+    if (out.bpm_valid && !out.beats_valid &&
+        mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4)) {
+        double duration = static_cast<double>(reader.lengthInSamples) / reader.sampleRate;
+        out.beats = detect_beats_dp(mono_preview, preview_sample_rate, out.bpm, duration);
+        out.beats_valid = !out.beats.empty();
+        if (out.beats_valid) {
+            out.beatgrid_offset_seconds = static_cast<float>(out.beats.front());
+            out.beatgrid_offset_valid = true;
+        }
+    }
+
     if (out.bpm_valid && !out.beatgrid_offset_valid &&
         mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4)) {
         if (auto offset = detect_beatgrid_offset(mono_preview, preview_sample_rate, out.bpm)) {
@@ -635,63 +799,132 @@ TrackAnalysis analyze_track(
 #ifdef FREEDECK_USE_AUBIO
 #include <aubio/aubio.h>
 
+class AubioBpmDetector {
+public:
+    explicit AubioBpmDetector(double sample_rate, uint_t win_size = 1024, uint_t hop_size = 512)
+        : sample_rate_(sample_rate), hop_size_(hop_size) {
+        tempo_ = new_aubio_tempo("default", win_size, hop_size, static_cast<uint_t>(sample_rate));
+    }
+
+    ~AubioBpmDetector() {
+        if (tempo_) {
+            del_aubio_tempo(tempo_);
+        }
+    }
+
+    bool process(const std::vector<float>& mono, std::vector<double>& out_beats, float& out_bpm) {
+        if (!tempo_) return false;
+
+        fvec_t* in = new_fvec(hop_size_);
+        fvec_t* out = new_fvec(1);
+        if (!in || !out) {
+            if (in) del_fvec(in);
+            if (out) del_fvec(out);
+            return false;
+        }
+
+        size_t offset = 0;
+        while (offset + hop_size_ <= mono.size()) {
+            for (uint_t i = 0; i < hop_size_; ++i) {
+                in->data[i] = mono[offset + i];
+            }
+
+            aubio_tempo_do(tempo_, in, out);
+
+            if (out->data[0] != 0.0f) {
+                double beat_time = aubio_tempo_get_last_s(tempo_);
+                if (beat_time > 0.0) {
+                    if (out_beats.empty() || beat_time > out_beats.back() + 0.05) {
+                        out_beats.push_back(beat_time);
+                    }
+                }
+            }
+            offset += hop_size_;
+        }
+
+        out_bpm = aubio_tempo_get_bpm(tempo_);
+        double confidence = aubio_tempo_get_confidence(tempo_);
+
+        del_fvec(in);
+        del_fvec(out);
+
+        return confidence >= 0.05f && !out_beats.empty();
+    }
+
+private:
+    double sample_rate_;
+    uint_t hop_size_;
+    aubio_tempo_t* tempo_{nullptr};
+};
+
+class AubioOnsetDetector {
+public:
+    explicit AubioOnsetDetector(double sample_rate, uint_t win_size = 1024, uint_t hop_size = 512)
+        : hop_size_(hop_size) {
+        onset_ = new_aubio_onset("default", win_size, hop_size, static_cast<uint_t>(sample_rate));
+    }
+
+    ~AubioOnsetDetector() {
+        if (onset_) {
+            del_aubio_onset(onset_);
+        }
+    }
+
+    bool process(const std::vector<float>& mono, std::vector<double>& out_onsets) {
+        if (!onset_) return false;
+
+        fvec_t* in = new_fvec(hop_size_);
+        fvec_t* out = new_fvec(1);
+        if (!in || !out) {
+            if (in) del_fvec(in);
+            if (out) del_fvec(out);
+            return false;
+        }
+
+        size_t offset = 0;
+        while (offset + hop_size_ <= mono.size()) {
+            for (uint_t i = 0; i < hop_size_; ++i) {
+                in->data[i] = mono[offset + i];
+            }
+
+            aubio_onset_do(onset_, in, out);
+
+            if (out->data[0] != 0.0f) {
+                double onset_time = aubio_onset_get_last_s(onset_);
+                if (onset_time > 0.0) {
+                    out_onsets.push_back(onset_time);
+                }
+            }
+            offset += hop_size_;
+        }
+
+        del_fvec(in);
+        del_fvec(out);
+        return !out_onsets.empty();
+    }
+
+private:
+    uint_t hop_size_;
+    aubio_onset_t* onset_{nullptr};
+};
+
 std::optional<TrackAnalysis> detect_bpm_and_beats_aubio(
     const std::vector<float>& mono,
     double sample_rate) {
     if (mono.size() < 4096 || sample_rate <= 0.0)
         return std::nullopt;
 
-    uint_t win_size = 1024;
-    uint_t hop_size = 512;
-
-    aubio_tempo_t* tempo = new_aubio_tempo("default", win_size, hop_size, static_cast<uint_t>(sample_rate));
-    if (tempo == nullptr)
-        return std::nullopt;
-
-    fvec_t* in = new_fvec(hop_size);
-    fvec_t* out = new_fvec(1);
-    if (in == nullptr || out == nullptr) {
-        if (tempo) del_aubio_tempo(tempo);
-        if (in) del_fvec(in);
-        if (out) del_fvec(out);
-        return std::nullopt;
-    }
-
+    AubioBpmDetector detector(sample_rate);
     std::vector<double> detected_beats;
-    size_t offset = 0;
-    while (offset + hop_size <= mono.size()) {
-        for (uint_t i = 0; i < hop_size; ++i) {
-            in->data[i] = mono[offset + i];
-        }
+    float bpm = 0.f;
 
-        aubio_tempo_do(tempo, in, out);
-
-        if (out->data[0] != 0.0f) {
-            double beat_time = aubio_tempo_get_last_s(tempo);
-            if (beat_time > 0.0) {
-                if (detected_beats.empty() || beat_time > detected_beats.back() + 0.05) {
-                    detected_beats.push_back(beat_time);
-                }
-            }
-        }
-
-        offset += hop_size;
+    if (!detector.process(mono, detected_beats, bpm)) {
+        return std::nullopt;
     }
-
-    float bpm = aubio_tempo_get_bpm(tempo);
-    float confidence = aubio_tempo_get_confidence(tempo);
-
-    del_aubio_tempo(tempo);
-    del_fvec(in);
-    del_fvec(out);
 
     bpm = resolve_bpm_with_prior(bpm);
 
     if (bpm < 40.f || bpm > 250.f || std::isnan(bpm)) {
-        return std::nullopt;
-    }
-
-    if (confidence < 0.05f || detected_beats.empty()) {
         return std::nullopt;
     }
 
@@ -706,6 +939,112 @@ std::optional<TrackAnalysis> detect_bpm_and_beats_aubio(
 
     return res;
 }
+#endif
+
+#ifdef FREEDECK_USE_ESSENTIA
+#include <essentia/algorithmfactory.h>
+#include <essentia/essentia.h>
+
+class EssentiaBpmDetector {
+public:
+    explicit EssentiaBpmDetector(double sample_rate) : sample_rate_(sample_rate) {
+        static std::once_flag init_flag;
+        std::call_once(init_flag, []() {
+            essentia::init();
+        });
+    }
+
+    bool process(const std::vector<float>& mono, std::vector<double>& out_beats, float& out_bpm) {
+        using namespace essentia;
+        using namespace essentia::standard;
+
+        Algorithm* rhythm = AlgorithmFactory::create("RhythmExtractor2013");
+        if (!rhythm) return false;
+
+        std::vector<float> beats_float;
+        std::vector<float> estimates;
+        float bpm = 0.0f;
+        float confidence = 0.0f;
+
+        rhythm->input("signal").set(mono);
+        rhythm->output("bpm").set(bpm);
+        rhythm->output("ticks").set(beats_float);
+        rhythm->output("confidence").set(confidence);
+        rhythm->output("estimates").set(estimates);
+
+        try {
+            rhythm->compute();
+        } catch (...) {
+            delete rhythm;
+            return false;
+        }
+
+        delete rhythm;
+
+        if (bpm <= 0.0f || std::isnan(bpm)) {
+            return false;
+        }
+
+        out_bpm = resolve_bpm_with_prior(bpm);
+        out_beats.clear();
+        for (float t : beats_float) {
+            out_beats.push_back(static_cast<double>(t));
+        }
+
+        return true;
+    }
+
+private:
+    double sample_rate_;
+};
+
+class EssentiaKeyDetector {
+public:
+    explicit EssentiaKeyDetector(double sample_rate) : sample_rate_(sample_rate) {
+        static std::once_flag init_flag;
+        std::call_once(init_flag, []() {
+            essentia::init();
+        });
+    }
+
+    bool process(const std::vector<float>& mono, std::string& out_key) {
+        using namespace essentia;
+        using namespace essentia::standard;
+
+        Algorithm* key_extractor = AlgorithmFactory::create("KeyExtractor");
+        if (!key_extractor) return false;
+
+        std::string key;
+        std::string scale;
+        float strength = 0.0f;
+
+        key_extractor->input("signal").set(mono);
+        key_extractor->output("key").set(key);
+        key_extractor->output("scale").set(scale);
+        key_extractor->output("strength").set(strength);
+
+        try {
+            key_extractor->compute();
+        } catch (...) {
+            delete key_extractor;
+            return false;
+        }
+
+        delete key_extractor;
+
+        if (key.empty()) return false;
+
+        std::string raw_key = key;
+        if (scale == "minor") {
+            raw_key += "m";
+        }
+        out_key = normalize_key_notation(raw_key);
+        return !out_key.empty();
+    }
+
+private:
+    double sample_rate_;
+};
 #endif
 
 } // namespace freedeck

@@ -22,6 +22,7 @@ public:
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
 
     bool is_prepared() const;
+    double start_delay_seconds() const;
 
 private:
     juce::OptionalScopedPointer<juce::AudioSource> input_;
@@ -31,6 +32,7 @@ private:
     int block_size_{512};
     int last_input_samples_{0};
     int start_delay_remaining_{0};
+    double sample_rate_{44100.0};
 
     std::unique_ptr<RubberBand::RubberBandStretcher> stretcher_;
     juce::AudioBuffer<float> input_buffer_;

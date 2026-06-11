@@ -45,6 +45,30 @@ public:
     void set_tempo_ratio(float ratio);
     void set_key_lock(bool enabled);
 
+    void set_native_bpm(double bpm);
+    double native_bpm() const;
+
+    void set_grid_offset(double offset);
+    double grid_offset() const;
+    
+    void set_beatgrid(double bpm, double offset);
+    void save_sidecar() const;
+
+    void set_sync_rate_trim(double trim);
+    double sync_rate_trim() const;
+
+    void set_nudge_offset_beats(double nudge);
+    double nudge_offset_beats() const;
+
+    void set_beats(std::shared_ptr<const std::vector<double>> beats);
+    std::shared_ptr<const std::vector<double>> beats() const;
+
+    void set_quantize(bool enabled);
+    bool quantize_enabled() const;
+
+    double start_delay_seconds() const;
+    double audible_position_seconds() const;
+
     bool is_playing() const;
     double position_seconds() const;
     double duration_seconds() const;
@@ -78,6 +102,14 @@ private:
     std::vector<float> peaks_;
     double duration_seconds_{0.0};
     TrackAnalysis analysis_;
+    juce::File loaded_file_;
+
+    std::atomic<double> native_bpm_{120.0};
+    std::atomic<double> grid_offset_{0.0};
+    std::atomic<double> sync_rate_trim_{1.0};
+    std::atomic<double> nudge_offset_beats_{0.0};
+    std::shared_ptr<const std::vector<double>> beats_;
+    std::atomic<bool> quantize_enabled_{false};
 };
 
 } // namespace freedeck

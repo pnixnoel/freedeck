@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Planned — G1 Continuous Beat Sync (v0.2.0)
+## [0.2.0] - 2026-06-11
+
+### Added
 
 - C++ audio-thread proportional phase lock (Mixxx-style P-control)
 - `engine_set_sync`, `engine_set_master`, `engine_set_beatgrid` FFI commands
@@ -15,6 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Quantize toggle with snap-to-beat/bar
 - Variable beatgrid array with Ellis DP analysis, persistence, and edit UI MVP
 - RT hardening: atomic playback reads, explicit device buffer size
+- Optional Essentia key and BPM detection backend (`FREEDECK_USE_ESSENTIA=ON`)
+- `license_info()` engine API and telemetry overlay info
+- DSP unit tests: `sync_test.cpp` and `beatgrid_test.cpp`
 
 ## [0.1.1] - 2026-06-08
 
@@ -59,6 +64,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - No hot cues, loops, FX rack, MIDI, or headphone cue
 - Audio thread uses mutex on playback handle (latency risk, addressed in G1)
 
-[Unreleased]: https://github.com/pnixnoel/freedeck/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/pnixnoel/freedeck/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/pnixnoel/freedeck/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/pnixnoel/freedeck/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/pnixnoel/freedeck/releases/tag/v0.1.0

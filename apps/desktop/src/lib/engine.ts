@@ -25,6 +25,9 @@ export type Telemetry = {
   deck_a_tempo: number;
   deck_a_key_lock: boolean;
   deck_a_loaded: boolean;
+  deck_a_synced: boolean;
+  deck_a_is_master: boolean;
+  deck_a_sync_phase_error: number;
   deck_b_peak_left: number;
   deck_b_peak_right: number;
   deck_b_volume: number;
@@ -36,6 +39,11 @@ export type Telemetry = {
   deck_b_tempo: number;
   deck_b_key_lock: boolean;
   deck_b_loaded: boolean;
+  deck_b_synced: boolean;
+  deck_b_is_master: boolean;
+  deck_b_sync_phase_error: number;
+  master_deck: number;
+  buffer_size_ms: number;
 };
 
 export type TrackMeta = {
@@ -142,6 +150,27 @@ export async function setCrossfader(position: number): Promise<void> {
   await safeInvoke("engine_set_crossfader", { position });
 }
 
+export async function setSync(deck: 0 | 1, enabled: boolean): Promise<void> {
+  await safeInvoke("engine_set_sync", { deck, enabled });
+}
+
+export async function setQuantize(deck: 0 | 1, enabled: boolean): Promise<void> {
+  await safeInvoke("engine_set_quantize", { deck, enabled });
+}
+
+export async function setMaster(deck: 0 | 1): Promise<void> {
+  await safeInvoke("engine_set_master", { deck });
+}
+
+export async function setBeatgrid(deck: 0 | 1, bpm: number, offset: number): Promise<void> {
+  await safeInvoke("engine_set_beatgrid", { deck, bpm, offset });
+}
+
+export async function getTrackBeats(deck: 0 | 1): Promise<number[]> {
+  const result = await safeInvoke<number[]>("engine_track_beats", { deck });
+  return result ?? [];
+}
+
 export async function getWaveformPeaks(deck: 0 | 1): Promise<number[]> {
   const result = await safeInvoke<number[]>("engine_waveform_peaks", { deck });
   return result ?? [];
@@ -149,6 +178,17 @@ export async function getWaveformPeaks(deck: 0 | 1): Promise<number[]> {
 
 export async function getTrackAnalysis(deck: 0 | 1): Promise<TrackAnalysis | null> {
   return safeInvoke<TrackAnalysis>("engine_track_analysis", { deck });
+}
+
+export type LicenseInfo = {
+  aubio_linked: boolean;
+  essentia_linked: boolean;
+  aubio_license: string;
+  essentia_license: string;
+};
+
+export async function getLicenseInfo(): Promise<LicenseInfo | null> {
+  return safeInvoke<LicenseInfo>("engine_get_license_info");
 }
 
 export async function onTelemetry(

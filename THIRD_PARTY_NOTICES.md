@@ -33,6 +33,26 @@ git clone --recurse-submodules git@github.com:pnixnoel/freedeck.git
 - **Project:** https://breakfastquay.com/rubberband/
 - **License:** GPL-2.0 (verify version bundled by your CMake config)
 
+## Aubio (optional)
+
+- **Location:** Optional external dependency (`FREEDECK_USE_AUBIO=ON` in CMake)
+- **Project:** https://aubio.org/
+- **License:** GPL-3.0
+- **Build Instructions:**
+  Install Aubio on your system (e.g., `brew install aubio` on macOS or `sudo apt install libaubio-dev` on Debian/Ubuntu). Run CMake with the `-DFREEDECK_USE_AUBIO=ON` flag.
+- **Licensing Implications:**
+  Aubio is licensed under the GPL-3.0. Linking Aubio with FreeDeck creates a combined work that is subject to the terms of the GPL-3.0. FreeDeck's own code is licensed under the AGPL-3.0, which is compatible with the GPL-3.0. If you distribute a compiled version of FreeDeck linked with Aubio, you must distribute the source code under the GPL-3.0. If you compile FreeDeck without Aubio, the GPL-3.0 restriction does not apply.
+
+## Essentia (optional)
+
+- **Location:** Optional external dependency (`FREEDECK_USE_ESSENTIA=ON` in CMake)
+- **Project:** https://essentia.upf.edu/
+- **License:** AGPL-3.0
+- **Build Instructions:**
+  Install Essentia on your system. Run CMake with the `-DFREEDECK_USE_ESSENTIA=ON` flag.
+- **Licensing Implications:**
+  Essentia is licensed under the AGPL-3.0. Linking Essentia with FreeDeck creates a combined work that is subject to the terms of the AGPL-3.0 (which matches FreeDeck's own primary license).
+
 ---
 
 For the license governing FreeDeck's original source code, see [LICENSE](LICENSE).

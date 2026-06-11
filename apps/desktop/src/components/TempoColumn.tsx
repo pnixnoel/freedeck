@@ -11,6 +11,8 @@ import {
   tempoToFaderPercent,
 } from "../lib/tempoColumn";
 
+import { PhaseMeter } from "./PhaseMeter";
+
 export type { TempoRange };
 
 const TICK_COUNT = 10;
@@ -27,6 +29,9 @@ type TempoColumnProps = {
   onSync?: () => void;
   syncEnabled?: boolean;
   syncActive?: boolean;
+  isMaster?: boolean;
+  synced?: boolean;
+  syncPhaseError?: number;
 };
 
 function syncButtonClass(syncEnabled: boolean, syncActive: boolean, hasHandler: boolean) {
@@ -89,6 +94,9 @@ export function TempoColumn({
   onSync,
   syncEnabled = false,
   syncActive = false,
+  isMaster = false,
+  synced = false,
+  syncPhaseError = 0,
 }: TempoColumnProps) {
   const [range, setRange] = useState<TempoRange>("16");
   const [rangeOpen, setRangeOpen] = useState(false);
@@ -127,6 +135,30 @@ export function TempoColumn({
       className="flex min-h-[240px] shrink-0 flex-col rounded-md border border-zinc-600/60 bg-[#18181f] px-2 py-2 shadow-inner"
       style={{ width: TEMPO_COLUMN_WIDTH_PX }}
     >
+      {/* Hardware-style Status LEDs */}
+      <div className="mb-2 flex w-full justify-between gap-1 px-0.5">
+        <div
+          className={`flex-1 rounded-[2px] py-0.5 text-center text-[7px] font-bold uppercase tracking-wider transition-all duration-200 ${
+            isMaster
+              ? "bg-amber-500/15 border border-amber-500/40 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.35)]"
+              : "bg-zinc-950/50 border border-zinc-900 text-zinc-600"
+          }`}
+        >
+          Master
+        </div>
+        <div
+          className={`flex-1 rounded-[2px] py-0.5 text-center text-[7px] font-bold uppercase tracking-wider transition-all duration-200 ${
+            syncActive && synced
+              ? "bg-sky-500/20 border border-sky-400/50 text-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.35)]"
+              : syncActive && !synced
+                ? "bg-sky-500/5 border border-sky-500/25 text-sky-400/80 animate-pulse"
+                : "bg-zinc-950/50 border border-zinc-900 text-zinc-600"
+          }`}
+        >
+          Sync
+        </div>
+      </div>
+
       <button
         type="button"
         disabled={!syncEnabled || !onSync}
@@ -146,6 +178,10 @@ export function TempoColumn({
       >
         Sync
       </button>
+
+      {syncActive && (
+        <PhaseMeter phaseError={syncPhaseError} />
+      )}
 
       <div className="mt-1.5 flex w-full flex-col items-center leading-none">
         <span className="font-mono text-[11px] font-medium text-zinc-100">

@@ -59,8 +59,28 @@ void set_crossfader(Engine& engine, float position) {
     engine.set_crossfader(position);
 }
 
+void set_sync(Engine& engine, uint8_t deck, bool enabled) {
+    engine.set_sync(deck, enabled);
+}
+
+void set_master(Engine& engine, uint8_t deck) {
+    engine.set_master(deck);
+}
+
+void set_beatgrid(Engine& engine, uint8_t deck, double bpm, double offset) {
+    engine.set_beatgrid(deck, bpm, offset);
+}
+
+void set_quantize(Engine& engine, uint8_t deck, bool enabled) {
+    engine.set_quantize(deck, enabled);
+}
+
 bool is_playing(const Engine& engine, uint8_t deck) {
     return engine.is_playing(deck);
+}
+
+bool quantize_enabled(const Engine& engine, uint8_t deck) {
+    return engine.quantize_enabled(deck);
 }
 
 double position_seconds(const Engine& engine, uint8_t deck) {
@@ -123,6 +143,9 @@ EngineSnapshotDto engine_snapshot(const Engine& engine) {
     out.deck_a_tempo = snap.deck_a.tempo_ratio;
     out.deck_a_key_lock = snap.deck_a.key_lock;
     out.deck_a_loaded = snap.deck_a.loaded;
+    out.deck_a_synced = snap.deck_a.synced;
+    out.deck_a_is_master = snap.deck_a.is_master;
+    out.deck_a_sync_phase_error = snap.deck_a.sync_phase_error;
     out.deck_b_peak_left = snap.deck_b.peak_left;
     out.deck_b_peak_right = snap.deck_b.peak_right;
     out.deck_b_volume = snap.deck_b.volume;
@@ -134,6 +157,30 @@ EngineSnapshotDto engine_snapshot(const Engine& engine) {
     out.deck_b_tempo = snap.deck_b.tempo_ratio;
     out.deck_b_key_lock = snap.deck_b.key_lock;
     out.deck_b_loaded = snap.deck_b.loaded;
+    out.deck_b_synced = snap.deck_b.synced;
+    out.deck_b_is_master = snap.deck_b.is_master;
+    out.deck_b_sync_phase_error = snap.deck_b.sync_phase_error;
+    out.master_deck = snap.master_deck;
+    out.buffer_size_ms = snap.buffer_size_ms;
+    return out;
+}
+
+rust::Vec<double> track_beats(const Engine& engine, uint8_t deck) {
+    const auto beats = engine.track_beats(deck);
+    rust::Vec<double> out;
+    out.reserve(beats.size());
+    for (double b : beats)
+        out.push_back(b);
+    return out;
+}
+
+LicenseInfoDto license_info(const Engine& engine) {
+    const auto info = engine.license_info();
+    LicenseInfoDto out;
+    out.aubio_linked = info.aubio_linked;
+    out.essentia_linked = info.essentia_linked;
+    out.aubio_license = info.aubio_license;
+    out.essentia_license = info.essentia_license;
     return out;
 }
 

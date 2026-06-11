@@ -12,7 +12,7 @@ import { doubleBpm, halveBpm } from "./lib/bpmOctave";
 import { formatKey } from "./lib/formatAnalysis";
 import { type LibraryTrack } from "./lib/mockLibrary";
 import { applyPitchBend } from "./lib/pitchBend";
-import { canSync, alignFollowerToMaster, effectiveBpm, resolveMasterDeck } from "./lib/sync";
+import { canSync, alignFollowerToMaster, effectiveBpm, resolveMasterDeck, snapToBar, secondsPerBar } from "./lib/sync";
 
 /** UI knob order is High/Mid/Low; engine bands are 0=low, 1=mid, 2=high. */
 const UI_TO_ENGINE_EQ_BAND = [2, 1, 0] as const;
@@ -42,6 +42,9 @@ export default function App() {
     deck_a_tempo: 1,
     deck_a_key_lock: true,
     deck_a_loaded: false,
+    deck_a_synced: false,
+    deck_a_is_master: false,
+    deck_a_sync_phase_error: 0,
     deck_b_peak_left: 0,
     deck_b_peak_right: 0,
     deck_b_volume: 1,
@@ -53,6 +56,11 @@ export default function App() {
     deck_b_tempo: 1,
     deck_b_key_lock: true,
     deck_b_loaded: false,
+    deck_b_synced: false,
+    deck_b_is_master: false,
+    deck_b_sync_phase_error: 0,
+    master_deck: -1,
+    buffer_size_ms: 0,
   });
 
   const [geekDataOpen, setGeekDataOpen] = useState(false);
@@ -81,6 +89,8 @@ export default function App() {
   const [crossfaderSweepBars, setCrossfaderSweepBars] = useState<SweepBarCount>(8);
   const [syncEngagedA, setSyncEngagedA] = useState(false);
   const [syncEngagedB, setSyncEngagedB] = useState(false);
+  const [quantizeA, setQuantizeA] = useState(false);
+  const [quantizeB, setQuantizeB] = useState(false);
   const [masterDeck, setMasterDeck] = useState<0 | 1 | null>(null);
   const lastAutoMasterRef = useRef<0 | 1>(0);
   const bendBaseA = useRef<number | null>(null);
@@ -104,6 +114,8 @@ export default function App() {
         positionRefA.current = t.deck_a_position;
         positionRefB.current = t.deck_b_position;
         setTelemetry(t);
+        setTempoA(t.deck_a_tempo);
+        setTempoB(t.deck_b_tempo);
       });
     })();
 
@@ -157,12 +169,14 @@ export default function App() {
       setTempoA(1);
       setSyncEngagedA(false);
       await engine.setTempo(0, 1);
+      await engine.setQuantize(0, quantizeA);
     } else {
       setPeaksB([]);
       setTrackB(null);
       setTempoB(1);
       setSyncEngagedB(false);
       await engine.setTempo(1, 1);
+      await engine.setQuantize(1, quantizeB);
     }
 
     const path = await engine.pickAndLoadTrack(deck);
@@ -208,7 +222,7 @@ export default function App() {
     }
 
     await syncDeckMixerToEngine(deck);
-  }, [syncDeckMixerToEngine]);
+  }, [syncDeckMixerToEngine, quantizeA, quantizeB]);
 
   const applySyncToFollower = useCallback(
     async (followerDeck: 0 | 1) => {
@@ -257,7 +271,13 @@ export default function App() {
         setTempoB(result.tempo);
         await engine.setTempo(1, result.tempo);
       }
-      await engine.seek(followerDeck, result.seekPosition);
+      let seekPos = result.seekPosition;
+      const quantizeEnabled = followerDeck === 0 ? quantizeA : quantizeB;
+      if (quantizeEnabled && followerTrack && followerTrack.bpm) {
+        const spbar = secondsPerBar(followerTrack.bpm);
+        seekPos = snapToBar(seekPos, followerTrack.beatgridOffset ?? 0, spbar);
+      }
+      await engine.seek(followerDeck, seekPos);
       return true;
     },
     [
@@ -272,6 +292,8 @@ export default function App() {
       trackB,
       tempoA,
       tempoB,
+      quantizeA,
+      quantizeB,
     ],
   );
 
@@ -322,6 +344,10 @@ export default function App() {
       const base = deck === 0 ? tempoA : tempoB;
       if (deck === 0) bendBaseA.current = base;
       else bendBaseB.current = base;
+
+      // Suspend engine-level phase locking during manual nudge
+      void engine.setSync(deck, false);
+
       const bent = applyPitchBend(base, direction);
       if (deck === 0) {
         setTempoA(bent);
@@ -342,13 +368,15 @@ export default function App() {
         setTempoA(base);
         engine.setTempo(0, base);
         bendBaseA.current = null;
+        if (syncEngagedA) void engine.setSync(0, true);
       } else {
         setTempoB(base);
         engine.setTempo(1, base);
         bendBaseB.current = null;
+        if (syncEngagedB) void engine.setSync(1, true);
       }
     },
-    [],
+    [syncEngagedA, syncEngagedB],
   );
 
   const applyCrossfader = useCallback((value: number) => {
@@ -358,15 +386,40 @@ export default function App() {
   }, []);
 
   const adjustBpm = useCallback(
-    (deck: 0 | 1, op: "double" | "halve") => {
+    async (deck: 0 | 1, op: "double" | "halve") => {
       const track = deck === 0 ? trackA : trackB;
       const setter = deck === 0 ? setTrackA : setTrackB;
       if (!track?.bpm) return;
       const next = op === "double" ? doubleBpm(track.bpm) : halveBpm(track.bpm);
       if (next == null) return;
       setter({ ...track, bpm: next });
+      await engine.setBeatgrid(deck, next, track.beatgridOffset ?? 0);
     },
     [trackA, trackB],
+  );
+
+  const nudgeGridOffset = useCallback(
+    async (deck: 0 | 1, deltaSeconds: number) => {
+      const track = deck === 0 ? trackA : trackB;
+      const setter = deck === 0 ? setTrackA : setTrackB;
+      if (!track?.bpm) return;
+      const nextOffset = (track.beatgridOffset ?? 0) + deltaSeconds;
+      setter({ ...track, beatgridOffset: nextOffset });
+      await engine.setBeatgrid(deck, track.bpm, nextOffset);
+    },
+    [trackA, trackB],
+  );
+
+  const setDownbeat = useCallback(
+    async (deck: 0 | 1) => {
+      const track = deck === 0 ? trackA : trackB;
+      const setter = deck === 0 ? setTrackA : setTrackB;
+      if (!track?.bpm) return;
+      const currentPos = deck === 0 ? telemetry.deck_a_position : telemetry.deck_b_position;
+      setter({ ...track, beatgridOffset: currentPos });
+      await engine.setBeatgrid(deck, track.bpm, currentPos);
+    },
+    [trackA, trackB, telemetry.deck_a_position, telemetry.deck_b_position],
   );
 
   const syncDeck = useCallback(
@@ -384,6 +437,21 @@ export default function App() {
     [syncEngagedA, syncEngagedB, applySyncToFollower],
   );
 
+  const toggleQuantize = useCallback(
+    async (deck: 0 | 1) => {
+      if (deck === 0) {
+        const next = !quantizeA;
+        setQuantizeA(next);
+        await engine.setQuantize(0, next);
+      } else {
+        const next = !quantizeB;
+        setQuantizeB(next);
+        await engine.setQuantize(1, next);
+      }
+    },
+    [quantizeA, quantizeB],
+  );
+
   const toggleMaster = useCallback((deck: 0 | 1) => {
     if (masterDeck === deck) {
       setMasterDeck(null);
@@ -398,15 +466,25 @@ export default function App() {
   const masterNativeBpm =
     resolvedMaster === 0 ? trackA?.bpm ?? null : trackB?.bpm ?? null;
 
+  // Map master deck to engine
   useEffect(() => {
-    if (syncEngagedA && resolvedMaster !== 0) {
-      void applySyncToFollower(0);
+    if (ready) {
+      void engine.setMaster(resolvedMaster);
     }
-    if (syncEngagedB && resolvedMaster !== 1) {
-      void applySyncToFollower(1);
+  }, [resolvedMaster, ready]);
+
+  // Map sync state to engine
+  useEffect(() => {
+    if (ready) {
+      void engine.setSync(0, syncEngagedA);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only follow master tempo/BPM changes
-  }, [masterTempo, masterNativeBpm, resolvedMaster, syncEngagedA, syncEngagedB]);
+  }, [syncEngagedA, ready]);
+
+  useEffect(() => {
+    if (ready) {
+      void engine.setSync(1, syncEngagedB);
+    }
+  }, [syncEngagedB, ready]);
 
   useEffect(() => {
     if (!canSync(trackA?.bpm ?? null, trackB?.bpm ?? null)) {
@@ -469,6 +547,8 @@ export default function App() {
             }}
             onBpmDouble={() => adjustBpm(0, "double")}
             onBpmHalve={() => adjustBpm(0, "halve")}
+            onGridNudge={(delta) => nudgeGridOffset(0, delta)}
+            onSetDownbeat={() => setDownbeat(0)}
             isMaster={resolvedMaster === 0}
             masterManual={masterDeck === 0}
             onMasterClick={() => toggleMaster(0)}
@@ -500,6 +580,11 @@ export default function App() {
             onNudge={(delta) => nudgeDeck(0, delta)}
             onPitchBendStart={(dir) => pitchBendStart(0, dir)}
             onPitchBendEnd={() => pitchBendEnd(0)}
+            isMaster={resolvedMaster === 0}
+            synced={telemetry.deck_a_synced}
+            syncPhaseError={telemetry.deck_a_sync_phase_error}
+            quantizeEnabled={quantizeA}
+            onQuantizeToggle={() => toggleQuantize(0)}
           />
         </div>
 
@@ -591,6 +676,8 @@ export default function App() {
             }}
             onBpmDouble={() => adjustBpm(1, "double")}
             onBpmHalve={() => adjustBpm(1, "halve")}
+            onGridNudge={(delta) => nudgeGridOffset(1, delta)}
+            onSetDownbeat={() => setDownbeat(1)}
             isMaster={resolvedMaster === 1}
             masterManual={masterDeck === 1}
             onMasterClick={() => toggleMaster(1)}
@@ -622,6 +709,11 @@ export default function App() {
             onNudge={(delta) => nudgeDeck(1, delta)}
             onPitchBendStart={(dir) => pitchBendStart(1, dir)}
             onPitchBendEnd={() => pitchBendEnd(1)}
+            isMaster={resolvedMaster === 1}
+            synced={telemetry.deck_b_synced}
+            syncPhaseError={telemetry.deck_b_sync_phase_error}
+            quantizeEnabled={quantizeB}
+            onQuantizeToggle={() => toggleQuantize(1)}
           />
         </div>
       </div>

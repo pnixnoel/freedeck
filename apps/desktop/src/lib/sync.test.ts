@@ -11,6 +11,8 @@ import {
   resolveMasterDeck,
   secondsPerBar,
   shortestPhraseDeltaBars,
+  snapToBeat,
+  snapToBar,
 } from "./sync";
 
 describe("computeSyncTempo", () => {
@@ -214,5 +216,29 @@ describe("clampSeek", () => {
   it("clamps to duration", () => {
     expect(clampSeek(50, 30)).toBe(30);
     expect(clampSeek(-5, 30)).toBe(0);
+  });
+});
+
+describe("snapToBeat", () => {
+  it("snaps position to closest beat offset", () => {
+    // 120 BPM -> 0.5s per beat, offset = 0.1s
+    expect(snapToBeat(1.2, 0.1, 0.5)).toBeCloseTo(1.1, 5); // 0.1 + 2 * 0.5 = 1.1
+    expect(snapToBeat(1.4, 0.1, 0.5)).toBeCloseTo(1.6, 5); // 0.1 + 3 * 0.5 = 1.6
+  });
+
+  it("handles zero/negative spb by returning position", () => {
+    expect(snapToBeat(1.2, 0.1, 0)).toBe(1.2);
+  });
+});
+
+describe("snapToBar", () => {
+  it("snaps position to closest bar offset", () => {
+    // 120 BPM -> 2.0s per bar, offset = 0.5s
+    expect(snapToBar(4.1, 0.5, 2.0)).toBeCloseTo(4.5, 5); // 0.5 + 2 * 2.0 = 4.5
+    expect(snapToBar(3.0, 0.5, 2.0)).toBeCloseTo(2.5, 5); // 0.5 + 1 * 2.0 = 2.5
+  });
+
+  it("handles zero/negative spbar by returning position", () => {
+    expect(snapToBar(4.1, 0.5, 0)).toBe(4.1);
   });
 });

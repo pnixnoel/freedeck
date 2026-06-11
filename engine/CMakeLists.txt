@@ -61,6 +61,15 @@ if(FREEDECK_USE_AUBIO)
     target_link_libraries(freedeck_engine PUBLIC PkgConfig::AUBIO)
 endif()
 
+option(FREEDECK_USE_ESSENTIA "Use Essentia for track analysis" OFF)
+
+if(FREEDECK_USE_ESSENTIA)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(ESSENTIA REQUIRED IMPORTED_TARGET essentia)
+    target_compile_definitions(freedeck_engine PUBLIC FREEDECK_USE_ESSENTIA=1)
+    target_link_libraries(freedeck_engine PUBLIC PkgConfig::ESSENTIA)
+endif()
+
 target_link_libraries(freedeck_engine
     PUBLIC
         juce::juce_core
@@ -96,3 +105,11 @@ target_link_libraries(freedeck_filter_test PRIVATE freedeck_engine juce::juce_ev
 add_executable(freedeck_deck_audio_test test/deck_audio_test.cpp)
 target_include_directories(freedeck_deck_audio_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(freedeck_deck_audio_test PRIVATE freedeck_engine juce::juce_events rubberband)
+
+add_executable(freedeck_sync_test test/sync_test.cpp)
+target_include_directories(freedeck_sync_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(freedeck_sync_test PRIVATE freedeck_engine juce::juce_events rubberband)
+
+add_executable(freedeck_beatgrid_test test/beatgrid_test.cpp)
+target_include_directories(freedeck_beatgrid_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(freedeck_beatgrid_test PRIVATE freedeck_engine juce::juce_events rubberband)

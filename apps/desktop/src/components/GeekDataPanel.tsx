@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import type { Telemetry } from "../lib/engine";
+import { type ReactNode, useState, useEffect } from "react";
+import { type Telemetry, getLicenseInfo, type LicenseInfo } from "../lib/engine";
 
 type GeekDataPanelProps = {
   open: boolean;
@@ -51,6 +51,9 @@ function DeckBlock({
   eqHigh,
   tempo,
   keyLock,
+  synced,
+  isMaster,
+  syncPhaseError,
 }: {
   label: string;
   loaded: boolean;
@@ -67,6 +70,9 @@ function DeckBlock({
   eqHigh: number;
   tempo: number;
   keyLock: boolean;
+  synced: boolean;
+  isMaster: boolean;
+  syncPhaseError: number;
 }) {
   return (
     <Section title={label}>
@@ -80,11 +86,22 @@ function DeckBlock({
       <Row label="eq low/mid/high" value={`${fmt(eqLow, 1)} / ${fmt(eqMid, 1)} / ${fmt(eqHigh, 1)} dB`} />
       <Row label="tempo ratio" value={fmt(tempo)} />
       <Row label="key lock" value={keyLock ? "on" : "off"} />
+      <Row label="synced" value={synced ? "yes" : "no"} />
+      <Row label="is master" value={isMaster ? "yes" : "no"} />
+      <Row label="phase error" value={`${fmt(syncPhaseError)} beats`} />
     </Section>
   );
 }
 
 export function GeekDataPanel({ open, telemetry, onClose }: GeekDataPanelProps) {
+  const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      getLicenseInfo().then(setLicenseInfo);
+    }
+  }, [open]);
+
   if (!open) return null;
 
   return (
@@ -124,7 +141,22 @@ export function GeekDataPanel({ open, telemetry, onClose }: GeekDataPanelProps) 
               label="xf gain A / B"
               value={`${fmt(telemetry.crossfader_gain_a)} / ${fmt(telemetry.crossfader_gain_b)}`}
             />
+            <Row label="master deck" value={telemetry.master_deck === -1 ? "none" : telemetry.master_deck === 0 ? "A" : "B"} />
+            <Row label="buffer size" value={`${fmt(telemetry.buffer_size_ms, 1)} ms`} />
           </Section>
+
+          {licenseInfo && (
+            <Section title="Licensing & Dependencies">
+              <Row
+                label="Aubio (GPL-3.0)"
+                value={licenseInfo.aubio_linked ? `linked (${licenseInfo.aubio_license})` : "not linked"}
+              />
+              <Row
+                label="Essentia (AGPL-3.0)"
+                value={licenseInfo.essentia_linked ? `linked (${licenseInfo.essentia_license})` : "not linked"}
+              />
+            </Section>
+          )}
 
           <DeckBlock
             label="Deck A"
@@ -142,6 +174,9 @@ export function GeekDataPanel({ open, telemetry, onClose }: GeekDataPanelProps) 
             eqHigh={telemetry.deck_a_eq_high_db}
             tempo={telemetry.deck_a_tempo}
             keyLock={telemetry.deck_a_key_lock}
+            synced={telemetry.deck_a_synced}
+            isMaster={telemetry.deck_a_is_master}
+            syncPhaseError={telemetry.deck_a_sync_phase_error}
           />
 
           <DeckBlock
@@ -160,6 +195,9 @@ export function GeekDataPanel({ open, telemetry, onClose }: GeekDataPanelProps) 
             eqHigh={telemetry.deck_b_eq_high_db}
             tempo={telemetry.deck_b_tempo}
             keyLock={telemetry.deck_b_key_lock}
+            synced={telemetry.deck_b_synced}
+            isMaster={telemetry.deck_b_is_master}
+            syncPhaseError={telemetry.deck_b_sync_phase_error}
           />
         </div>
       </aside>

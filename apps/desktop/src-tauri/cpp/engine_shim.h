@@ -23,10 +23,16 @@ void set_trim(Engine& engine, uint8_t deck, float gain_db);
 void set_tempo(Engine& engine, uint8_t deck, float ratio);
 void set_key_lock(Engine& engine, uint8_t deck, bool enabled);
 void set_crossfader(Engine& engine, float position);
+void set_sync(Engine& engine, uint8_t deck, bool enabled);
+void set_master(Engine& engine, uint8_t deck);
+void set_beatgrid(Engine& engine, uint8_t deck, double bpm, double offset);
+void set_quantize(Engine& engine, uint8_t deck, bool enabled);
 bool is_playing(const Engine& engine, uint8_t deck);
+bool quantize_enabled(const Engine& engine, uint8_t deck);
 double position_seconds(const Engine& engine, uint8_t deck);
 double duration_seconds(const Engine& engine, uint8_t deck);
 rust::Vec<float> waveform_peaks(const Engine& engine, uint8_t deck);
+rust::Vec<double> track_beats(const Engine& engine, uint8_t deck);
 
 #ifndef CXXBRIDGE1_STRUCT_freedeck_bridge$TrackAnalysisDto
 #define CXXBRIDGE1_STRUCT_freedeck_bridge$TrackAnalysisDto
@@ -65,6 +71,9 @@ struct EngineSnapshotDto final {
     float deck_a_tempo;
     bool deck_a_key_lock;
     bool deck_a_loaded;
+    bool deck_a_synced;
+    bool deck_a_is_master;
+    float deck_a_sync_phase_error;
     float deck_b_peak_left;
     float deck_b_peak_right;
     float deck_b_volume;
@@ -76,9 +85,26 @@ struct EngineSnapshotDto final {
     float deck_b_tempo;
     bool deck_b_key_lock;
     bool deck_b_loaded;
+    bool deck_b_synced;
+    bool deck_b_is_master;
+    float deck_b_sync_phase_error;
+    int32_t master_deck;
+    float buffer_size_ms;
 };
 #endif
 
 EngineSnapshotDto engine_snapshot(const Engine& engine);
+
+#ifndef CXXBRIDGE1_STRUCT_freedeck_bridge$LicenseInfoDto
+#define CXXBRIDGE1_STRUCT_freedeck_bridge$LicenseInfoDto
+struct LicenseInfoDto final {
+    bool aubio_linked;
+    bool essentia_linked;
+    rust::String aubio_license;
+    rust::String essentia_license;
+};
+#endif
+
+LicenseInfoDto license_info(const Engine& engine);
 
 } // namespace freedeck_bridge

@@ -233,8 +233,8 @@ void test_analyze_track_includes_beatgrid_offset() {
 
 #ifdef FREEDECK_USE_AUBIO
 void test_aubio_analyzer() {
-    const auto mono = make_click_mono(120.0, 10.0);
-    auto res = freedeck::detect_bpm_and_beats_aubio(mono, 11025.0);
+    const auto mono = make_click_mono(120.0, 10.0, 44100.0);
+    auto res = freedeck::detect_bpm_and_beats_aubio(mono, 44100.0);
     assert(res.has_value());
     assert(res->bpm_valid);
     assert(res->bpm >= 115.f && res->bpm <= 125.f);
@@ -245,28 +245,64 @@ void test_aubio_analyzer() {
     }
     std::cout << "test_aubio_analyzer OK (" << res->bpm << " BPM, " << res->beats.size() << " beats)\n";
 }
+
+void test_aubio_vs_builtin_comparison() {
+    const auto mono = make_click_mono(125.0, 15.0, 44100.0);
+    
+    // Built-in detection
+    auto bpm_builtin = freedeck::detect_bpm(mono, 44100.0);
+    assert(bpm_builtin.has_value());
+    
+    // Aubio detection
+    auto res_aubio = freedeck::detect_bpm_and_beats_aubio(mono, 44100.0);
+    assert(res_aubio.has_value());
+    assert(res_aubio->bpm_valid);
+    
+    float diff = std::abs(*bpm_builtin - res_aubio->bpm);
+    assert(diff <= 2.0f);
+    
+    std::cout << "test_aubio_vs_builtin_comparison OK (Built-in: " << *bpm_builtin 
+              << " BPM, Aubio: " << res_aubio->bpm << " BPM, diff: " << diff << ")\n";
+}
 #endif
 
 } // namespace
 
 int main() {
-    juce::ScopedJuceInitialiser_GUI juce_init;
+    std::cout << "Starting tests..." << std::endl;
+    std::cout << "Running test_parse_bpm_from_metadata..." << std::endl;
     test_parse_bpm_from_metadata();
+    std::cout << "Running test_parse_key_from_metadata..." << std::endl;
     test_parse_key_from_metadata();
+    std::cout << "Running test_detect_bpm_click_track..." << std::endl;
     test_detect_bpm_click_track();
+    std::cout << "Running test_detect_bpm_half_tempo_guard..." << std::endl;
     test_detect_bpm_half_tempo_guard();
+    std::cout << "Running test_detect_key_major_chord..." << std::endl;
     test_detect_key_major_chord();
+    std::cout << "Running test_analyze_track_metadata_first..." << std::endl;
     test_analyze_track_metadata_first();
+    std::cout << "Running test_parse_id3_container_tags..." << std::endl;
     test_parse_id3_container_tags();
+    std::cout << "Running test_analyze_track_audio_fallback..." << std::endl;
     test_analyze_track_audio_fallback();
+    std::cout << "Running test_resolve_bpm_prefers_dj_range..." << std::endl;
     test_resolve_bpm_prefers_dj_range();
+    std::cout << "Running test_resolve_bpm_keeps_in_range_values..." << std::endl;
     test_resolve_bpm_keeps_in_range_values();
+    std::cout << "Running test_resolve_bpm_keeps_true_half_time..." << std::endl;
     test_resolve_bpm_keeps_true_half_time();
+    std::cout << "Running test_detect_beatgrid_offset_click_at_start..." << std::endl;
     test_detect_beatgrid_offset_click_at_start();
+    std::cout << "Running test_detect_beatgrid_offset_delayed_downbeat..." << std::endl;
     test_detect_beatgrid_offset_delayed_downbeat();
+    std::cout << "Running test_analyze_track_includes_beatgrid_offset..." << std::endl;
     test_analyze_track_includes_beatgrid_offset();
 #ifdef FREEDECK_USE_AUBIO
+    std::cout << "Running test_aubio_analyzer..." << std::endl;
     test_aubio_analyzer();
+    std::cout << "Running test_aubio_vs_builtin_comparison..." << std::endl;
+    test_aubio_vs_builtin_comparison();
 #endif
     std::cout << "All track analysis tests passed.\n";
     return 0;

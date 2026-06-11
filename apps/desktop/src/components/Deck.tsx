@@ -24,6 +24,11 @@ type DeckProps = {
   onNudge: (deltaSeconds: number) => void;
   onPitchBendStart?: (direction: -1 | 1) => void;
   onPitchBendEnd?: () => void;
+  isMaster?: boolean;
+  synced?: boolean;
+  syncPhaseError?: number;
+  quantizeEnabled?: boolean;
+  onQuantizeToggle?: () => void;
 };
 
 export function Deck({
@@ -47,6 +52,11 @@ export function Deck({
   onNudge,
   onPitchBendStart,
   onPitchBendEnd,
+  isMaster = false,
+  synced = false,
+  syncPhaseError = 0,
+  quantizeEnabled = false,
+  onQuantizeToggle,
 }: DeckProps) {
   const gridColumns = deckGridColumns(side);
 
@@ -74,6 +84,9 @@ export function Deck({
       onSync={onSync}
       syncEnabled={syncEnabled}
       syncActive={syncActive}
+      isMaster={isMaster}
+      synced={synced}
+      syncPhaseError={syncPhaseError}
     />
   );
 
@@ -131,6 +144,8 @@ export function Deck({
           playing={playing}
           onCue={onCue}
           onPlayToggle={onPlayToggle}
+          quantizeEnabled={quantizeEnabled}
+          onQuantizeToggle={onQuantizeToggle}
         />
       </div>
     </section>
