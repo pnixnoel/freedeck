@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "pnpm --filter @freedeck/desktop dev",
     "build": "pnpm --filter @freedeck/desktop build",
-    "tauri": "pnpm --filter @freedeck/desktop tauri"
+    "tauri": "pnpm --filter @freedeck/desktop tauri",
+    "start": "PATH=\"/Users/gautham/.cargo/bin:$PATH\" CXXFLAGS=\"-I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1\" pnpm tauri dev"
   },
   "engines": {
     "node": ">=18"
