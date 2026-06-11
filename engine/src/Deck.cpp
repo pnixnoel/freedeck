@@ -262,6 +262,17 @@ void Deck::get_next_audio_block(const juce::AudioSourceChannelInfo& info) {
 
     apply_stretch_settings(pb);
 
+    if (loop_active_.load(std::memory_order_relaxed)) {
+        double start = loop_start_seconds_.load(std::memory_order_relaxed);
+        double end = loop_end_seconds_.load(std::memory_order_relaxed);
+        if (start >= 0.0 && end > start) {
+            double current = pb->transport->getCurrentPosition();
+            if (current >= end) {
+                pb->transport->setPosition(start + (current - end));
+            }
+        }
+    }
+
     pb->time_stretch->getNextAudioBlock(info);
 
     juce::AudioBuffer<float> buffer(
@@ -288,6 +299,9 @@ DeckSnapshot Deck::snapshot() const {
     state.filter_amount = filter_amount_.load(std::memory_order_relaxed);
     state.tempo_ratio = tempo_ratio_.load(std::memory_order_relaxed);
     state.key_lock = key_lock_.load(std::memory_order_relaxed);
+    state.loop_active = loop_active_.load(std::memory_order_relaxed);
+    state.loop_start_seconds = static_cast<float>(loop_start_seconds_.load(std::memory_order_relaxed));
+    state.loop_end_seconds = static_cast<float>(loop_end_seconds_.load(std::memory_order_relaxed));
 
     auto pb = playback();
     state.loaded = pb != nullptr;
@@ -505,6 +519,27 @@ double Deck::audible_position_seconds() const {
         return 0.0;
     double pos = pb->transport->getCurrentPosition();
     return pos - start_delay_seconds();
+}
+
+void Deck::set_loop_points(double start_seconds, double end_seconds) {
+    loop_start_seconds_.store(start_seconds, std::memory_order_relaxed);
+    loop_end_seconds_.store(end_seconds, std::memory_order_relaxed);
+}
+
+void Deck::set_loop_active(bool active) {
+    loop_active_.store(active, std::memory_order_relaxed);
+}
+
+bool Deck::loop_active() const {
+    return loop_active_.load(std::memory_order_relaxed);
+}
+
+double Deck::loop_start_seconds() const {
+    return loop_start_seconds_.load(std::memory_order_relaxed);
+}
+
+double Deck::loop_end_seconds() const {
+    return loop_end_seconds_.load(std::memory_order_relaxed);
 }
 
 } // namespace freedeck

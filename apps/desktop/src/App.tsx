@@ -10,7 +10,7 @@ import * as engine from "./lib/engine";
 import { type SweepBarCount } from "./lib/crossfaderMotion";
 import { doubleBpm, halveBpm } from "./lib/bpmOctave";
 import { formatKey } from "./lib/formatAnalysis";
-import { type LibraryTrack } from "./lib/mockLibrary";
+import { type LibraryTrack } from "./lib/engine";
 import { applyPitchBend } from "./lib/pitchBend";
 import { canSync, alignFollowerToMaster, effectiveBpm, resolveMasterDeck, snapToBar, secondsPerBar } from "./lib/sync";
 
@@ -45,6 +45,9 @@ export default function App() {
     deck_a_synced: false,
     deck_a_is_master: false,
     deck_a_sync_phase_error: 0,
+    deck_a_loop_active: false,
+    deck_a_loop_start_seconds: 0,
+    deck_a_loop_end_seconds: 0,
     deck_b_peak_left: 0,
     deck_b_peak_right: 0,
     deck_b_volume: 1,
@@ -59,6 +62,9 @@ export default function App() {
     deck_b_synced: false,
     deck_b_is_master: false,
     deck_b_sync_phase_error: 0,
+    deck_b_loop_active: false,
+    deck_b_loop_start_seconds: 0,
+    deck_b_loop_end_seconds: 0,
     master_deck: -1,
     buffer_size_ms: 0,
   });
@@ -95,6 +101,130 @@ export default function App() {
   const lastAutoMasterRef = useRef<0 | 1>(0);
   const bendBaseA = useRef<number | null>(null);
   const bendBaseB = useRef<number | null>(null);
+
+  const [cuesA, setCuesA] = useState<(number | null)[]>(Array(8).fill(null));
+  const [cuesB, setCuesB] = useState<(number | null)[]>(Array(8).fill(null));
+  const [beatsA, setBeatsA] = useState<number[]>([]);
+  const [beatsB, setBeatsB] = useState<number[]>([]);
+  const [loopStartTempA, setLoopStartTempA] = useState<number | null>(null);
+  const [loopStartTempB, setLoopStartTempB] = useState<number | null>(null);
+
+  const snapToNearestBeat = (position: number, beats: number[]): number => {
+    if (beats.length === 0) return position;
+    let nearest = beats[0];
+    let minDist = Math.abs(position - nearest);
+    for (let i = 1; i < beats.length; i++) {
+      const dist = Math.abs(position - beats[i]);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = beats[i];
+      }
+    }
+    return nearest;
+  };
+
+  const handleSetCue = async (deck: 0 | 1, index: number) => {
+    const track = deck === 0 ? trackA : trackB;
+    if (!track?.id) return;
+    let pos = deck === 0 ? positionRefA.current : positionRefB.current;
+    const isQuantized = deck === 0 ? quantizeA : quantizeB;
+    if (isQuantized) {
+      const beats = deck === 0 ? beatsA : beatsB;
+      pos = snapToNearestBeat(pos, beats);
+    }
+    
+    await engine.librarySetCue(track.id, index, pos);
+    
+    if (deck === 0) {
+      const copy = [...cuesA];
+      copy[index] = pos;
+      setCuesA(copy);
+    } else {
+      const copy = [...cuesB];
+      copy[index] = pos;
+      setCuesB(copy);
+    }
+  };
+
+  const handleCuePress = async (deck: 0 | 1, index: number) => {
+    const cues = deck === 0 ? cuesA : cuesB;
+    const pos = cues[index];
+    if (pos !== null) {
+      await engine.seek(deck, pos);
+    } else {
+      await handleSetCue(deck, index);
+    }
+  };
+
+  const handleCueClear = async (deck: 0 | 1, index: number) => {
+    const track = deck === 0 ? trackA : trackB;
+    if (!track?.id) return;
+    await engine.libraryDeleteCue(track.id, index);
+    if (deck === 0) {
+      const copy = [...cuesA];
+      copy[index] = null;
+      setCuesA(copy);
+    } else {
+      const copy = [...cuesB];
+      copy[index] = null;
+      setCuesB(copy);
+    }
+  };
+
+  const handleLoopIn = async (deck: 0 | 1) => {
+    let pos = deck === 0 ? positionRefA.current : positionRefB.current;
+    const isQuantized = deck === 0 ? quantizeA : quantizeB;
+    if (isQuantized) {
+      const beats = deck === 0 ? beatsA : beatsB;
+      pos = snapToNearestBeat(pos, beats);
+    }
+    if (deck === 0) {
+      setLoopStartTempA(pos);
+    } else {
+      setLoopStartTempB(pos);
+    }
+  };
+
+  const handleLoopOut = async (deck: 0 | 1) => {
+    const start = deck === 0 ? loopStartTempA : loopStartTempB;
+    if (start === null) return;
+    
+    let end = deck === 0 ? positionRefA.current : positionRefB.current;
+    const isQuantized = deck === 0 ? quantizeA : quantizeB;
+    if (isQuantized) {
+      const beats = deck === 0 ? beatsA : beatsB;
+      end = snapToNearestBeat(end, beats);
+    }
+    
+    if (end <= start) return;
+    
+    await engine.setLoopPoints(deck, start, end);
+    await engine.setLoopActive(deck, true);
+  };
+
+  const handleLoopActiveToggle = async (deck: 0 | 1) => {
+    const active = deck === 0 ? telemetry.deck_a_loop_active : telemetry.deck_b_loop_active;
+    await engine.setLoopActive(deck, !active);
+  };
+
+  const handleAutoLoop = async (deck: 0 | 1, loopBeats: number) => {
+    let pos = deck === 0 ? positionRefA.current : positionRefB.current;
+    const beats = deck === 0 ? beatsA : beatsB;
+    
+    pos = snapToNearestBeat(pos, beats);
+
+    const track = deck === 0 ? trackA : trackB;
+    const bpm = track?.bpm ?? 120.0;
+    const beatDuration = 60.0 / bpm;
+    const loopDuration = loopBeats * beatDuration;
+    
+    const end = pos + loopDuration;
+    const isQuantized = deck === 0 ? quantizeA : quantizeB;
+    const finalEnd = isQuantized ? snapToNearestBeat(end, beats) : end;
+
+    await engine.setLoopPoints(deck, pos, finalEnd);
+    await engine.setLoopActive(deck, true);
+  };
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -168,6 +298,9 @@ export default function App() {
       setTrackA(null);
       setTempoA(1);
       setSyncEngagedA(false);
+      setCuesA(Array(8).fill(null));
+      setBeatsA([]);
+      setLoopStartTempA(null);
       await engine.setTempo(0, 1);
       await engine.setQuantize(0, quantizeA);
     } else {
@@ -175,14 +308,28 @@ export default function App() {
       setTrackB(null);
       setTempoB(1);
       setSyncEngagedB(false);
+      setCuesB(Array(8).fill(null));
+      setBeatsB([]);
+      setLoopStartTempB(null);
       await engine.setTempo(1, 1);
       await engine.setQuantize(1, quantizeB);
     }
 
-    const path = await engine.pickAndLoadTrack(deck);
+    let path = libraryTrack?.path ?? null;
+    if (!path) {
+      path = await engine.pickAndLoadTrack(deck);
+    } else {
+      const ok = await engine.loadTrack(deck, path);
+      if (!ok) return;
+      await engine.libraryIncrementPlayCount(libraryTrack.id);
+    }
     if (!path) return;
+
+    const trackId = libraryTrack?.id ?? await engine.libraryGetTrackId(path);
+
     const meta = engine.titleFromPath(path);
     const info: DeckTrackInfo = {
+      id: trackId,
       title: libraryTrack?.title ?? meta.title,
       artist: libraryTrack?.artist ?? meta.artist,
       bpm: libraryTrack?.bpm ?? null,
@@ -208,9 +355,26 @@ export default function App() {
     if (deck === 0) {
       setTrackA(updated);
       setPeaksA(peaks);
+      setBeatsA(analysis?.beats ?? []);
     } else {
       setTrackB(updated);
       setPeaksB(peaks);
+      setBeatsB(analysis?.beats ?? []);
+    }
+
+    // Load cues
+    try {
+      const dbCues = await engine.libraryGetCues(trackId);
+      const cueArray = Array(8).fill(null);
+      for (const c of dbCues) {
+        if (c.index >= 0 && c.index < 8) {
+          cueArray[c.index] = c.position;
+        }
+      }
+      if (deck === 0) setCuesA(cueArray);
+      else setCuesB(cueArray);
+    } catch (err) {
+      console.error("Failed to load cues:", err);
     }
 
     if (deck === 0) {
@@ -585,6 +749,16 @@ export default function App() {
             syncPhaseError={telemetry.deck_a_sync_phase_error}
             quantizeEnabled={quantizeA}
             onQuantizeToggle={() => toggleQuantize(0)}
+            loopActive={telemetry.deck_a_loop_active}
+            loopStartSeconds={telemetry.deck_a_loop_start_seconds}
+            loopEndSeconds={telemetry.deck_a_loop_end_seconds}
+            cuePoints={cuesA}
+            onLoopIn={() => handleLoopIn(0)}
+            onLoopOut={() => handleLoopOut(0)}
+            onLoopActiveToggle={() => handleLoopActiveToggle(0)}
+            onAutoLoop={(beats) => handleAutoLoop(0, beats)}
+            onCuePress={(idx) => handleCuePress(0, idx)}
+            onCueClear={(idx) => handleCueClear(0, idx)}
           />
         </div>
 
@@ -714,6 +888,16 @@ export default function App() {
             syncPhaseError={telemetry.deck_b_sync_phase_error}
             quantizeEnabled={quantizeB}
             onQuantizeToggle={() => toggleQuantize(1)}
+            loopActive={telemetry.deck_b_loop_active}
+            loopStartSeconds={telemetry.deck_b_loop_start_seconds}
+            loopEndSeconds={telemetry.deck_b_loop_end_seconds}
+            cuePoints={cuesB}
+            onLoopIn={() => handleLoopIn(1)}
+            onLoopOut={() => handleLoopOut(1)}
+            onLoopActiveToggle={() => handleLoopActiveToggle(1)}
+            onAutoLoop={(beats) => handleAutoLoop(1, beats)}
+            onCuePress={(idx) => handleCuePress(1, idx)}
+            onCueClear={(idx) => handleCueClear(1, idx)}
           />
         </div>
       </div>

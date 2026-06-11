@@ -118,6 +118,18 @@ struct Engine::Impl : juce::AudioIODeviceCallback {
         }
     }
 
+    void set_loop_points(uint8_t deck, double start_seconds, double end_seconds) {
+        if (deck <= 1) {
+            decks_[deck]->set_loop_points(start_seconds, end_seconds);
+        }
+    }
+
+    void set_loop_active(uint8_t deck, bool active) {
+        if (deck <= 1) {
+            decks_[deck]->set_loop_active(active);
+        }
+    }
+
     bool quantize_enabled(uint8_t deck) const {
         if (deck > 1) return false;
         return decks_[deck]->quantize_enabled();
@@ -317,6 +329,12 @@ void Engine::set_beatgrid(uint8_t deck, double bpm, double offset) {
 }
 void Engine::set_quantize(uint8_t deck, bool enabled) {
     impl_->set_quantize(deck, enabled);
+}
+void Engine::set_loop_points(uint8_t deck, double start_seconds, double end_seconds) {
+    impl_->set_loop_points(deck, start_seconds, end_seconds);
+}
+void Engine::set_loop_active(uint8_t deck, bool active) {
+    impl_->set_loop_active(deck, active);
 }
 bool Engine::is_playing(uint8_t deck) const { return impl_->is_playing(deck); }
 bool Engine::quantize_enabled(uint8_t deck) const {

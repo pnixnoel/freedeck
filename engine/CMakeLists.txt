@@ -113,3 +113,7 @@ target_link_libraries(freedeck_sync_test PRIVATE freedeck_engine juce::juce_even
 add_executable(freedeck_beatgrid_test test/beatgrid_test.cpp)
 target_include_directories(freedeck_beatgrid_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(freedeck_beatgrid_test PRIVATE freedeck_engine juce::juce_events rubberband)
+
+add_executable(freedeck_loop_test test/loop_test.cpp)
+target_include_directories(freedeck_loop_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(freedeck_loop_test PRIVATE freedeck_engine juce::juce_events rubberband)

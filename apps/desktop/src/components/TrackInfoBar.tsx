@@ -3,6 +3,7 @@ import { formatPlayingBpm } from "../lib/formatAnalysis";
 import { OverviewWaveform } from "./OverviewWaveform";
 
 export type DeckTrackInfo = {
+  id?: string | null;
   title: string;
   artist: string;
   bpm: number | null;

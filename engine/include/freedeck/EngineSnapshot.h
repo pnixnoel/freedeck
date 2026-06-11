@@ -19,6 +19,9 @@ struct DeckSnapshot {
     bool synced = false;
     bool is_master = false;
     float sync_phase_error = 0.0f; // beats, signed
+    bool loop_active = false;
+    float loop_start_seconds = 0.0f;
+    float loop_end_seconds = 0.0f;
 };
 
 struct EngineSnapshot {

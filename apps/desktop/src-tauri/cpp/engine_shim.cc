@@ -113,6 +113,11 @@ TrackAnalysisDto track_analysis(const Engine& engine, uint8_t deck) {
     for (double b : analysis.beats) {
         out.beats.push_back(b);
     }
+    out.title = analysis.title;
+    out.artist = analysis.artist;
+    out.album = analysis.album;
+    out.genre = analysis.genre;
+    out.duration_seconds = analysis.duration_seconds;
     return out;
 }
 
@@ -146,6 +151,9 @@ EngineSnapshotDto engine_snapshot(const Engine& engine) {
     out.deck_a_synced = snap.deck_a.synced;
     out.deck_a_is_master = snap.deck_a.is_master;
     out.deck_a_sync_phase_error = snap.deck_a.sync_phase_error;
+    out.deck_a_loop_active = snap.deck_a.loop_active;
+    out.deck_a_loop_start_seconds = snap.deck_a.loop_start_seconds;
+    out.deck_a_loop_end_seconds = snap.deck_a.loop_end_seconds;
     out.deck_b_peak_left = snap.deck_b.peak_left;
     out.deck_b_peak_right = snap.deck_b.peak_right;
     out.deck_b_volume = snap.deck_b.volume;
@@ -160,6 +168,9 @@ EngineSnapshotDto engine_snapshot(const Engine& engine) {
     out.deck_b_synced = snap.deck_b.synced;
     out.deck_b_is_master = snap.deck_b.is_master;
     out.deck_b_sync_phase_error = snap.deck_b.sync_phase_error;
+    out.deck_b_loop_active = snap.deck_b.loop_active;
+    out.deck_b_loop_start_seconds = snap.deck_b.loop_start_seconds;
+    out.deck_b_loop_end_seconds = snap.deck_b.loop_end_seconds;
     out.master_deck = snap.master_deck;
     out.buffer_size_ms = snap.buffer_size_ms;
     return out;
@@ -181,6 +192,35 @@ LicenseInfoDto license_info(const Engine& engine) {
     out.essentia_linked = info.essentia_linked;
     out.aubio_license = info.aubio_license;
     out.essentia_license = info.essentia_license;
+    return out;
+}
+
+void set_loop_points(Engine& engine, uint8_t deck, double start_seconds, double end_seconds) {
+    engine.set_loop_points(deck, start_seconds, end_seconds);
+}
+
+void set_loop_active(Engine& engine, uint8_t deck, bool active) {
+    engine.set_loop_active(deck, active);
+}
+
+TrackAnalysisDto analyze_file(rust::Str path) {
+    const auto analysis = freedeck::analyze_file(std::string(path));
+    TrackAnalysisDto out;
+    out.bpm = analysis.bpm;
+    out.bpm_valid = analysis.bpm_valid;
+    out.key = analysis.key;
+    out.key_valid = analysis.key_valid;
+    out.beatgrid_offset_seconds = analysis.beatgrid_offset_seconds;
+    out.beatgrid_offset_valid = analysis.beatgrid_offset_valid;
+    out.beats_valid = analysis.beats_valid;
+    for (double b : analysis.beats) {
+        out.beats.push_back(b);
+    }
+    out.title = analysis.title;
+    out.artist = analysis.artist;
+    out.album = analysis.album;
+    out.genre = analysis.genre;
+    out.duration_seconds = analysis.duration_seconds;
     return out;
 }
 

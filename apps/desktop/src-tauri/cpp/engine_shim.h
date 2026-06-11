@@ -27,6 +27,8 @@ void set_sync(Engine& engine, uint8_t deck, bool enabled);
 void set_master(Engine& engine, uint8_t deck);
 void set_beatgrid(Engine& engine, uint8_t deck, double bpm, double offset);
 void set_quantize(Engine& engine, uint8_t deck, bool enabled);
+void set_loop_points(Engine& engine, uint8_t deck, double start_seconds, double end_seconds);
+void set_loop_active(Engine& engine, uint8_t deck, bool active);
 bool is_playing(const Engine& engine, uint8_t deck);
 bool quantize_enabled(const Engine& engine, uint8_t deck);
 double position_seconds(const Engine& engine, uint8_t deck);
@@ -45,10 +47,16 @@ struct TrackAnalysisDto final {
     bool beatgrid_offset_valid;
     rust::Vec<double> beats;
     bool beats_valid;
+    rust::String title;
+    rust::String artist;
+    rust::String album;
+    rust::String genre;
+    double duration_seconds;
 };
 #endif
 
 TrackAnalysisDto track_analysis(const Engine& engine, uint8_t deck);
+TrackAnalysisDto analyze_file(rust::Str path);
 float output_left(const Engine& engine);
 float output_right(const Engine& engine);
 
@@ -74,6 +82,9 @@ struct EngineSnapshotDto final {
     bool deck_a_synced;
     bool deck_a_is_master;
     float deck_a_sync_phase_error;
+    bool deck_a_loop_active;
+    float deck_a_loop_start_seconds;
+    float deck_a_loop_end_seconds;
     float deck_b_peak_left;
     float deck_b_peak_right;
     float deck_b_volume;
@@ -88,6 +99,9 @@ struct EngineSnapshotDto final {
     bool deck_b_synced;
     bool deck_b_is_master;
     float deck_b_sync_phase_error;
+    bool deck_b_loop_active;
+    float deck_b_loop_start_seconds;
+    float deck_b_loop_end_seconds;
     int32_t master_deck;
     float buffer_size_ms;
 };

@@ -1,4 +1,5 @@
 #include "TrackAnalysis.h"
+#include "freedeck/engine.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_dsp/juce_dsp.h>
@@ -1046,5 +1047,112 @@ private:
     double sample_rate_;
 };
 #endif
+
+TrackAnalysis analyze_file(const std::string& path) {
+    juce::AudioFormatManager format_manager;
+    format_manager.registerBasicFormats();
+
+    juce::File file(path);
+    auto reader = std::unique_ptr<juce::AudioFormatReader>(format_manager.createReaderFor(file));
+    TrackAnalysis out;
+    if (reader == nullptr) {
+        return out;
+    }
+
+    out.duration_seconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+
+    // Get metadata from reader tags
+    juce::String title = reader->metadataValues.getValue("title", reader->metadataValues.getValue("Title", reader->metadataValues.getValue("TITLE", "")));
+    if (title.isEmpty()) {
+        title = file.getFileNameWithoutExtension();
+    }
+    juce::String artist = reader->metadataValues.getValue("artist", reader->metadataValues.getValue("Artist", reader->metadataValues.getValue("ARTIST", "")));
+    juce::String album = reader->metadataValues.getValue("album", reader->metadataValues.getValue("Album", reader->metadataValues.getValue("ALBUM", "")));
+    juce::String genre = reader->metadataValues.getValue("genre", reader->metadataValues.getValue("Genre", reader->metadataValues.getValue("GENRE", "")));
+
+    out.title = title.toStdString();
+    out.artist = artist.toStdString();
+    out.album = album.toStdString();
+    out.genre = genre.toStdString();
+
+    // Check sidecar json
+    juce::File sidecar_file = file.getParentDirectory().getChildFile(file.getFileName() + ".json");
+    bool loaded_from_sidecar = false;
+
+    if (sidecar_file.existsAsFile()) {
+        const juce::String json_str = sidecar_file.loadFileAsString();
+        const juce::var parsed = juce::JSON::parse(json_str);
+        if (parsed.isObject()) {
+            const double bpm = parsed.getProperty("bpm", 0.0);
+            const double grid_offset = parsed.getProperty("grid_offset_seconds", 0.0);
+            const juce::var beats_val = parsed.getProperty("beats", juce::var());
+            const juce::String key = parsed.getProperty("key", "").toString();
+
+            if (bpm > 0.0) {
+                out.bpm = static_cast<float>(bpm);
+                out.bpm_valid = true;
+                out.bpm_source = AnalysisSource::Audio;
+                out.beatgrid_offset_seconds = static_cast<float>(grid_offset);
+                out.beatgrid_offset_valid = true;
+
+                if (key.isNotEmpty()) {
+                    out.key = key.toStdString();
+                    out.key_valid = true;
+                    out.key_source = AnalysisSource::Audio;
+                }
+
+                if (beats_val.isArray()) {
+                    out.beats.clear();
+                    const auto* arr = beats_val.getArray();
+                    for (int i = 0; i < arr->size(); ++i) {
+                        out.beats.push_back((*arr)[i]);
+                    }
+                    out.beats_valid = true;
+                }
+                loaded_from_sidecar = true;
+            }
+        }
+    }
+
+    if (!loaded_from_sidecar) {
+        const auto container_tags = parse_container_tags(file);
+        const auto mono = read_mono_preview(*reader, 90.0, 11025.0);
+        auto analysis = analyze_track(
+            *reader, mono, 11025.0,
+            container_tags.getAllKeys().size() > 0 ? &container_tags : nullptr);
+
+        out.bpm = analysis.bpm;
+        out.bpm_valid = analysis.bpm_valid;
+        out.bpm_source = analysis.bpm_source;
+        out.key = analysis.key;
+        out.key_valid = analysis.key_valid;
+        out.key_source = analysis.key_source;
+        out.beatgrid_offset_seconds = analysis.beatgrid_offset_seconds;
+        out.beatgrid_offset_valid = analysis.beatgrid_offset_valid;
+        out.beats = analysis.beats;
+        out.beats_valid = analysis.beats_valid;
+
+        // Save sidecar next to the audio file
+        juce::DynamicObject::Ptr json_obj = new juce::DynamicObject();
+        json_obj->setProperty("version", 1);
+        json_obj->setProperty("file_path", file.getFullPathName());
+        json_obj->setProperty("bpm", out.bpm);
+        json_obj->setProperty("key", juce::String(out.key));
+        json_obj->setProperty("grid_offset_seconds", out.beatgrid_offset_seconds);
+        
+        juce::Array<juce::var> beats_arr;
+        for (double b : out.beats) {
+            beats_arr.add(b);
+        }
+        json_obj->setProperty("beats", beats_arr);
+        json_obj->setProperty("edited", false);
+
+        juce::var json_var(json_obj.get());
+        juce::String json_text = juce::JSON::toString(json_var);
+        sidecar_file.replaceWithText(json_text);
+    }
+
+    return out;
+}
 
 } // namespace freedeck

@@ -28,6 +28,9 @@ export type Telemetry = {
   deck_a_synced: boolean;
   deck_a_is_master: boolean;
   deck_a_sync_phase_error: number;
+  deck_a_loop_active: boolean;
+  deck_a_loop_start_seconds: number;
+  deck_a_loop_end_seconds: number;
   deck_b_peak_left: number;
   deck_b_peak_right: number;
   deck_b_volume: number;
@@ -42,8 +45,38 @@ export type Telemetry = {
   deck_b_synced: boolean;
   deck_b_is_master: boolean;
   deck_b_sync_phase_error: number;
+  deck_b_loop_active: boolean;
+  deck_b_loop_start_seconds: number;
+  deck_b_loop_end_seconds: number;
   master_deck: number;
   buffer_size_ms: number;
+};
+
+export type LibraryTrack = {
+  id: string;
+  path: string;
+  artist: string;
+  title: string;
+  album: string;
+  genre: string;
+  duration: number;
+  bpm: number;
+  key: string;
+  play_count: number;
+};
+
+export type CuePoint = {
+  track_id: string;
+  index: number;
+  position: number;
+};
+
+export type SavedLoop = {
+  track_id: string;
+  index: number;
+  start_seconds: number;
+  end_seconds: number;
+  active: boolean;
 };
 
 export type TrackMeta = {
@@ -227,4 +260,63 @@ export function titleFromPath(path: string): TrackMeta {
     return { artist: parts[0].trim(), title: parts.slice(1).join(" - ").trim(), path };
   }
   return { artist: "Unknown Artist", title: base, path };
+}
+
+export async function setLoopPoints(deck: 0 | 1, startSeconds: number, endSeconds: number): Promise<void> {
+  await safeInvoke("engine_set_loop_points", { deck, startSeconds, endSeconds });
+}
+
+export async function setLoopActive(deck: 0 | 1, active: boolean): Promise<void> {
+  await safeInvoke("engine_set_loop_active", { deck, active });
+}
+
+export async function libraryGetTracks(): Promise<LibraryTrack[]> {
+  const res = await safeInvoke<LibraryTrack[]>("library_get_tracks");
+  return res ?? [];
+}
+
+export async function libraryDeleteTrack(id: string): Promise<void> {
+  await safeInvoke("library_delete_track", { id });
+}
+
+export async function libraryImportFolder(folderPath: string): Promise<number> {
+  const res = await safeInvoke<number>("library_import_folder", { folderPath });
+  return res ?? 0;
+}
+
+export async function libraryGetCues(trackId: string): Promise<CuePoint[]> {
+  const res = await safeInvoke<CuePoint[]>("library_get_cues", { trackId });
+  return res ?? [];
+}
+
+export async function librarySetCue(trackId: string, index: number, position: number): Promise<void> {
+  await safeInvoke("library_set_cue", { trackId, index, position });
+}
+
+export async function libraryDeleteCue(trackId: string, index: number): Promise<void> {
+  await safeInvoke("library_delete_cue", { trackId, index });
+}
+
+export async function libraryGetLoops(trackId: string): Promise<SavedLoop[]> {
+  const res = await safeInvoke<SavedLoop[]>("library_get_loops", { trackId });
+  return res ?? [];
+}
+
+export async function librarySetLoop(
+  trackId: string,
+  index: number,
+  startSeconds: number,
+  endSeconds: number,
+  active: boolean,
+): Promise<void> {
+  await safeInvoke("library_set_loop", { trackId, index, startSeconds, endSeconds, active });
+}
+
+export async function libraryIncrementPlayCount(id: string): Promise<void> {
+  await safeInvoke("library_increment_play_count", { id });
+}
+
+export async function libraryGetTrackId(path: string): Promise<string> {
+  const res = await safeInvoke<string>("library_get_track_id", { path });
+  return res ?? "";
 }

@@ -19,6 +19,11 @@ struct TrackAnalysis {
     bool beatgrid_offset_valid = false;
     std::vector<double> beats;
     bool beats_valid = false;
+    std::string title;
+    std::string artist;
+    std::string album;
+    std::string genre;
+    double duration_seconds = 0.0;
 };
 
 std::vector<double> detect_beats_dp(

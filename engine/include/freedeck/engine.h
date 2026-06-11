@@ -54,6 +54,8 @@ public:
     void set_master(uint8_t deck);
     void set_beatgrid(uint8_t deck, double bpm, double offset);
     void set_quantize(uint8_t deck, bool enabled);
+    void set_loop_points(uint8_t deck, double start_seconds, double end_seconds);
+    void set_loop_active(uint8_t deck, bool active);
 
     bool is_playing(uint8_t deck) const;
     bool quantize_enabled(uint8_t deck) const;
@@ -73,5 +75,7 @@ private:
 
 // Factory for cxx FFI
 std::unique_ptr<Engine> new_engine();
+
+TrackAnalysis analyze_file(const std::string& path);
 
 } // namespace freedeck

@@ -66,6 +66,12 @@ public:
     void set_quantize(bool enabled);
     bool quantize_enabled() const;
 
+    void set_loop_points(double start_seconds, double end_seconds);
+    void set_loop_active(bool active);
+    bool loop_active() const;
+    double loop_start_seconds() const;
+    double loop_end_seconds() const;
+
     double start_delay_seconds() const;
     double audible_position_seconds() const;
 
@@ -110,6 +116,9 @@ private:
     std::atomic<double> nudge_offset_beats_{0.0};
     std::shared_ptr<const std::vector<double>> beats_;
     std::atomic<bool> quantize_enabled_{false};
+    std::atomic<double> loop_start_seconds_{-1.0};
+    std::atomic<double> loop_end_seconds_{-1.0};
+    std::atomic<bool> loop_active_{false};
 };
 
 } // namespace freedeck
