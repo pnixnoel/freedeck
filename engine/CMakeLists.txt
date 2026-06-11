@@ -117,3 +117,12 @@ target_link_libraries(freedeck_beatgrid_test PRIVATE freedeck_engine juce::juce_
 add_executable(freedeck_loop_test test/loop_test.cpp)
 target_include_directories(freedeck_loop_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(freedeck_loop_test PRIVATE freedeck_engine juce::juce_events rubberband)
+
+enable_testing()
+add_test(NAME track_analysis_test COMMAND freedeck_track_analysis_test)
+add_test(NAME sync_test COMMAND freedeck_sync_test)
+add_test(NAME beatgrid_test COMMAND freedeck_beatgrid_test)
+add_test(NAME loop_test COMMAND freedeck_loop_test)
+add_test(NAME eq_test COMMAND freedeck_eq_test)
+add_test(NAME filter_test COMMAND freedeck_filter_test)
+add_test(NAME time_stretch_test COMMAND freedeck_time_stretch_test)

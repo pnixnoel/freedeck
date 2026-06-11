@@ -19,12 +19,21 @@ struct TrackAnalysis {
     bool beatgrid_offset_valid = false;
     std::vector<double> beats;
     bool beats_valid = false;
+    std::vector<double> downbeats;
+    bool downbeats_valid = false;
+    float analysis_confidence = 0.f;
+    float loudness_rms_db = 0.f;
+    std::string analyzer_backend;
     std::string title;
     std::string artist;
     std::string album;
     std::string genre;
     double duration_seconds = 0.0;
 };
+
+bool beats_are_monotonic(const std::vector<double>& beats, double min_gap_seconds = 0.05);
+std::vector<double> derive_downbeats(const std::vector<double>& beats, int beats_per_bar = 4);
+float compute_preview_loudness_db(const std::vector<float>& mono);
 
 std::vector<double> detect_beats_dp(
     const std::vector<float>& mono,

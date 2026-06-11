@@ -211,6 +211,83 @@ void test_detect_beatgrid_offset_delayed_downbeat() {
     std::cout << "test_detect_beatgrid_offset_delayed_downbeat OK (" << *offset << ")\n";
 }
 
+void test_beats_are_monotonic() {
+    std::vector<double> good{0.0, 0.5, 1.0, 1.5};
+    assert(freedeck::beats_are_monotonic(good));
+    std::vector<double> bad{0.0, 0.5, 0.5, 1.0};
+    assert(!freedeck::beats_are_monotonic(bad));
+    std::cout << "test_beats_are_monotonic OK\n";
+}
+
+void test_derive_downbeats() {
+    std::vector<double> beats{0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5};
+    const auto downbeats = freedeck::derive_downbeats(beats);
+    assert(downbeats.size() == 2);
+    assert(std::abs(downbeats[0] - 0.0) < 0.001);
+    assert(std::abs(downbeats[1] - 2.0) < 0.001);
+    std::cout << "test_derive_downbeats OK\n";
+}
+
+void test_compute_preview_loudness_db() {
+    std::vector<float> silence(1024, 0.f);
+    assert(freedeck::compute_preview_loudness_db(silence) <= -90.f);
+    std::vector<float> tone(1024, 0.5f);
+    assert(freedeck::compute_preview_loudness_db(tone) > -20.f);
+    std::cout << "test_compute_preview_loudness_db OK\n";
+}
+
+void test_sidecar_round_trip() {
+    freedeck::TrackAnalysis original;
+    original.bpm = 128.f;
+    original.bpm_valid = true;
+    original.key = "Am";
+    original.key_valid = true;
+    original.beats = {0.0, 0.5, 1.0, 1.5};
+    original.beats_valid = true;
+    original.beatgrid_offset_seconds = 0.f;
+    original.beatgrid_offset_valid = true;
+    original.downbeats = {0.0, 1.0};
+    original.downbeats_valid = true;
+    original.analysis_confidence = 0.82f;
+    original.loudness_rms_db = -12.5f;
+    original.analyzer_backend = "builtin";
+
+    const auto json = freedeck::analysis_to_sidecar_json(original, "/tmp/track.wav");
+    freedeck::TrackAnalysis loaded;
+    assert(freedeck::analysis_from_sidecar_json(json, loaded));
+    assert(loaded.bpm_valid);
+    assert(std::abs(loaded.bpm - 128.f) < 0.01f);
+    assert(loaded.beats.size() == 4);
+    assert(loaded.downbeats_valid);
+    assert(loaded.analyzer_backend == "builtin");
+    assert(std::abs(loaded.analysis_confidence - 0.82f) < 0.01f);
+    std::cout << "test_sidecar_round_trip OK\n";
+}
+
+void test_analyze_track_metadata_beats_fallback() {
+    class DummyReader : public juce::AudioFormatReader {
+    public:
+        DummyReader() : juce::AudioFormatReader(nullptr, "Dummy") {
+            sampleRate = 11025.0;
+            bitsPerSample = 16;
+            lengthInSamples = 11025 * 20;
+            numChannels = 1;
+        }
+        bool readSamples(int* const*, int, int, juce::int64, int) override { return true; }
+    } reader;
+
+    juce::StringPairArray tags;
+    tags.set("BPM", "120");
+    const auto mono = make_click_mono(120.0, 10.0, 11025.0);
+    auto result = freedeck::analyze_track(reader, mono, 11025.0, &tags);
+    assert(result.bpm_valid);
+    assert(std::abs(result.bpm - 120.f) < 0.01f);
+    assert(result.beats_valid);
+    assert(result.beats.size() > 5);
+    assert(result.analyzer_backend == "builtin" || result.analyzer_backend == "metadata");
+    std::cout << "test_analyze_track_metadata_beats_fallback OK\n";
+}
+
 void test_analyze_track_includes_beatgrid_offset() {
     class FakeReader : public juce::AudioFormatReader {
     public:
@@ -266,6 +343,18 @@ void test_aubio_vs_builtin_comparison() {
 }
 #endif
 
+#ifdef FREEDECK_USE_ESSENTIA
+void test_essentia_analyzer() {
+    const auto mono = make_click_mono(120.0, 10.0, 44100.0);
+    auto res = freedeck::detect_bpm_and_beats_essentia(mono, 44100.0);
+    assert(res.has_value());
+    assert(res->bpm_valid);
+    assert(res->beats_valid);
+    assert(freedeck::beats_are_monotonic(res->beats));
+    std::cout << "test_essentia_analyzer OK (" << res->bpm << " BPM)\n";
+}
+#endif
+
 } // namespace
 
 int main() {
@@ -296,6 +385,16 @@ int main() {
     test_detect_beatgrid_offset_click_at_start();
     std::cout << "Running test_detect_beatgrid_offset_delayed_downbeat..." << std::endl;
     test_detect_beatgrid_offset_delayed_downbeat();
+    std::cout << "Running test_beats_are_monotonic..." << std::endl;
+    test_beats_are_monotonic();
+    std::cout << "Running test_derive_downbeats..." << std::endl;
+    test_derive_downbeats();
+    std::cout << "Running test_compute_preview_loudness_db..." << std::endl;
+    test_compute_preview_loudness_db();
+    std::cout << "Running test_sidecar_round_trip..." << std::endl;
+    test_sidecar_round_trip();
+    std::cout << "Running test_analyze_track_metadata_beats_fallback..." << std::endl;
+    test_analyze_track_metadata_beats_fallback();
     std::cout << "Running test_analyze_track_includes_beatgrid_offset..." << std::endl;
     test_analyze_track_includes_beatgrid_offset();
 #ifdef FREEDECK_USE_AUBIO
@@ -303,6 +402,10 @@ int main() {
     test_aubio_analyzer();
     std::cout << "Running test_aubio_vs_builtin_comparison..." << std::endl;
     test_aubio_vs_builtin_comparison();
+#endif
+#ifdef FREEDECK_USE_ESSENTIA
+    std::cout << "Running test_essentia_analyzer..." << std::endl;
+    test_essentia_analyzer();
 #endif
     std::cout << "All track analysis tests passed.\n";
     return 0;

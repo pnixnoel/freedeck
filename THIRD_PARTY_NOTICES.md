@@ -38,6 +38,7 @@ git clone --recurse-submodules git@github.com:pnixnoel/freedeck.git
 - **Location:** Optional external dependency (`FREEDECK_USE_AUBIO=ON` in CMake)
 - **Project:** https://aubio.org/
 - **License:** GPL-3.0
+- **Packaging strategy:** **Dynamic linking** via system `libaubio` (PkgConfig). Release builds ship with Aubio **disabled by default**; enable only after a licensing audit. Runtime failure or low-confidence results fall back to the built-in analyzer.
 - **Build Instructions:**
   Install Aubio on your system (e.g., `brew install aubio` on macOS or `sudo apt install libaubio-dev` on Debian/Ubuntu). Run CMake with the `-DFREEDECK_USE_AUBIO=ON` flag.
 - **Licensing Implications:**
@@ -48,6 +49,7 @@ git clone --recurse-submodules git@github.com:pnixnoel/freedeck.git
 - **Location:** Optional external dependency (`FREEDECK_USE_ESSENTIA=ON` in CMake)
 - **Project:** https://essentia.upf.edu/
 - **License:** AGPL-3.0
+- **Packaging strategy:** **Dynamic linking** via system `libessentia` (PkgConfig). Release builds ship with Essentia **disabled by default**. Do not bundle non-commercial ML models unless separately licensed. Failure falls back to Aubio (if enabled), then the built-in analyzer.
 - **Build Instructions:**
   Install Essentia on your system. Run CMake with the `-DFREEDECK_USE_ESSENTIA=ON` flag.
 - **Licensing Implications:**

@@ -99,36 +99,7 @@ bool Deck::load(const juce::File& file) {
     if (sidecar_file.existsAsFile()) {
         const juce::String json_str = sidecar_file.loadFileAsString();
         const juce::var parsed = juce::JSON::parse(json_str);
-        if (parsed.isObject()) {
-            const double bpm = parsed.getProperty("bpm", 0.0);
-            const double grid_offset = parsed.getProperty("grid_offset_seconds", 0.0);
-            const juce::var beats_val = parsed.getProperty("beats", juce::var());
-            const juce::String key = parsed.getProperty("key", "").toString();
-
-            if (bpm > 0.0) {
-                analysis_.bpm = static_cast<float>(bpm);
-                analysis_.bpm_valid = true;
-                analysis_.bpm_source = AnalysisSource::Audio;
-                analysis_.beatgrid_offset_seconds = static_cast<float>(grid_offset);
-                analysis_.beatgrid_offset_valid = true;
-
-                if (key.isNotEmpty()) {
-                    analysis_.key = key.toStdString();
-                    analysis_.key_valid = true;
-                    analysis_.key_source = AnalysisSource::Audio;
-                }
-
-                if (beats_val.isArray()) {
-                    analysis_.beats.clear();
-                    const auto* arr = beats_val.getArray();
-                    for (int i = 0; i < arr->size(); ++i) {
-                        analysis_.beats.push_back((*arr)[i]);
-                    }
-                    analysis_.beats_valid = true;
-                }
-                loaded_from_sidecar = true;
-            }
-        }
+        loaded_from_sidecar = analysis_from_sidecar_json(parsed, analysis_);
     }
 
     if (!loaded_from_sidecar) {
@@ -138,23 +109,8 @@ bool Deck::load(const juce::File& file) {
             *analysis_reader, mono, 11025.0,
             container_tags.getAllKeys().size() > 0 ? &container_tags : nullptr);
 
-        // Save sidecar next to the audio file
-        juce::DynamicObject::Ptr json_obj = new juce::DynamicObject();
-        json_obj->setProperty("version", 1);
-        json_obj->setProperty("file_path", file.getFullPathName());
-        json_obj->setProperty("bpm", analysis_.bpm);
-        json_obj->setProperty("key", juce::String(analysis_.key));
-        json_obj->setProperty("grid_offset_seconds", analysis_.beatgrid_offset_seconds);
-        
-        juce::Array<juce::var> beats_arr;
-        for (double b : analysis_.beats) {
-            beats_arr.add(b);
-        }
-        json_obj->setProperty("beats", beats_arr);
-        json_obj->setProperty("edited", false);
-
-        juce::var json_var(json_obj.get());
-        juce::String json_text = juce::JSON::toString(json_var);
+        const juce::String json_text = juce::JSON::toString(
+            analysis_to_sidecar_json(analysis_, file.getFullPathName()));
         sidecar_file.replaceWithText(json_text);
     }
 
@@ -455,22 +411,22 @@ void Deck::save_sidecar() const {
 
     juce::File sidecar_file = loaded_file_.getParentDirectory().getChildFile(loaded_file_.getFileName() + ".json");
 
-    juce::DynamicObject::Ptr json = new juce::DynamicObject();
-    json->setProperty("bpm", native_bpm());
-    json->setProperty("grid_offset_seconds", grid_offset());
-    json->setProperty("key", juce::String(analysis_.key));
+    TrackAnalysis sidecar = analysis_;
+    sidecar.bpm = native_bpm();
+    sidecar.bpm_valid = true;
+    sidecar.beatgrid_offset_seconds = grid_offset();
+    sidecar.beatgrid_offset_valid = true;
 
     auto beats_ptr = beats();
-    juce::Array<juce::var> beats_arr;
     if (beats_ptr) {
-        for (double b : *beats_ptr) {
-            beats_arr.add(b);
-        }
+        sidecar.beats = *beats_ptr;
+        sidecar.beats_valid = !beats_ptr->empty();
+        sidecar.downbeats = derive_downbeats(sidecar.beats);
+        sidecar.downbeats_valid = !sidecar.downbeats.empty();
     }
-    json->setProperty("beats", beats_arr);
 
-    juce::var json_var(json.get());
-    juce::String json_text = juce::JSON::toString(json_var);
+    const juce::String json_text = juce::JSON::toString(
+        analysis_to_sidecar_json(sidecar, loaded_file_.getFullPathName()));
     sidecar_file.replaceWithText(json_text);
 }
 

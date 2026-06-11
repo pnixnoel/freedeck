@@ -17,8 +17,8 @@ FreeDeck uses a **Shared Brain** architecture: a single C++ audio engine powers 
 ```mermaid
 flowchart LR
     G0["G0 v0.1 DONE"] --> G0b["G0b v0.1.1 DONE"]
-    G0b --> G1["G1 CURRENT: Continuous Beat Sync"]
-    G1 --> G2["G2 v0.3: Library + Cues"]
+    G0b --> G1["G1 DONE: Continuous Beat Sync"]
+    G1 --> G2["G2 CURRENT: Library + Cues"]
     G2 --> G3["G3 v0.4: Performance Ready"]
     G3 --> G4["G4 v0.5: Auto-Mix USP"]
     G4 --> G5["G5 v1.0: Controller + macOS Stable"]
@@ -30,17 +30,23 @@ flowchart LR
 | G0 | v0.1.0 | **Done** | 2-deck engine demo, one-shot TS sync |
 | G0b | v0.1.1 | **Done** | Bipolar filter, trim/gain, engine snapshot telemetry, GeekDataPanel, DSP tests |
 | **G1** | **v0.2.0** | **Done** | Continuous Beat Sync (Phases 1–4) |
-| G2 | v0.3.0 | Next | Real local library, hot cues, loops |
+| **G2** | **v0.3.0** | **In progress** | Real local library, hot cues, loops |
 | G3 | v0.4.0 | Planned | Remaining FX, headphone cue, recording |
 | G4 | v0.5.0 | Planned | Auto-Mix engine (requires G1 beatgrids) |
 | G5 | v1.0.0 | Planned | DDJ-FLX4 MIDI, 4-deck, macOS stable release |
 | G6 | v2.0.0 | Planned | KMP mobile hosts, Supabase cloud sync |
 
-**Advance rule:** Complete the current goal's Definition of Done, ship the mapped release, then move to the next goal. Do not start G2 until G1 Definition of Done passes.
+**Advance rule:** Complete the current goal's Definition of Done, ship the mapped release, then move to the next goal.
 
 ---
 
-## Current goal: G1 — Continuous Beat Sync
+## Current goal: G2 — Library + Cues + Loops
+
+**Status:** SQLite library, folder import, 8 hot cues, and engine looping landed on `setup-project` (v0.3.0).
+
+---
+
+## Completed goal: G1 — Continuous Beat Sync
 
 **Implementation plan:** [`.cursor/plans/continuous_beat_sync_ffd91553.plan.md`](.cursor/plans/continuous_beat_sync_ffd91553.plan.md)
 

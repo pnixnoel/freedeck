@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Analyzer fallback chain: Essentia → Aubio → BuiltIn with monotonic beat validation
+- Sidecar JSON v2: `analyzer_backend`, `analysis_confidence`, `downbeats`, `loudness_rms_db`
+- Engine test suite registered with CTest (`track_analysis`, `sync`, `beatgrid`, `loop`, `eq`, `filter`)
+- Self-contained `loop_test` (generates temp WAV, no CLI args)
+- Optional analyzer rollback plan in `docs/RELEASING.md`
+
+### Changed
+
+- Aubio no longer overwrites Essentia/builtin beats; only fills gaps
+- Essentia rhythm path requires confidence ≥ 0.3 and monotonic beats
+
 ## [0.2.0] - 2026-06-11
 
 ### Added
