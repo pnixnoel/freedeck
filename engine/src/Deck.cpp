@@ -2,12 +2,37 @@
 
 namespace freedeck {
 
+namespace {
+double snap_to_beat(double pos, double bpm, double offset, const std::vector<double>& beats) {
+    if (beats.size() >= 2) {
+        auto it = std::lower_bound(beats.begin(), beats.end(), pos);
+        if (it == beats.end()) {
+            return beats.back();
+        }
+        if (it == beats.begin()) {
+            return beats.front();
+        }
+        double next = *it;
+        double prev = *(it - 1);
+        if (std::abs(next - pos) < std::abs(prev - pos)) {
+            return next;
+        } else {
+            return prev;
+        }
+    } else {
+        if (bpm <= 0.0) return pos;
+        double beat_duration = 60.0 / bpm;
+        double beat_index = std::round((pos - offset) / beat_duration);
+        return offset + beat_index * beat_duration;
+    }
+}
+}
+
 Deck::Deck(juce::AudioFormatManager& format_manager)
     : format_manager_(format_manager) {}
 
 std::shared_ptr<DeckPlayback> Deck::playback() const {
-    std::lock_guard<std::mutex> lock(load_mutex_);
-    return playback_;
+    return std::atomic_load(&playback_);
 }
 
 void Deck::apply_stretch_settings(const std::shared_ptr<DeckPlayback>& pb) const {
@@ -15,9 +40,11 @@ void Deck::apply_stretch_settings(const std::shared_ptr<DeckPlayback>& pb) const
         return;
 
     const float ratio = tempo_ratio_.load(std::memory_order_relaxed);
+    const double trim = sync_rate_trim_.load(std::memory_order_relaxed);
+    const double effective = ratio * trim;
     const bool key_lock = key_lock_.load(std::memory_order_relaxed);
-    pb->time_stretch->set_time_ratio(static_cast<double>(ratio));
-    pb->time_stretch->set_pitch_scale(key_lock ? 1.0 : static_cast<double>(ratio));
+    pb->time_stretch->set_time_ratio(effective);
+    pb->time_stretch->set_pitch_scale(key_lock ? 1.0 : effective);
 }
 
 std::shared_ptr<DeckPlayback> Deck::rebuild_playback(
@@ -51,6 +78,11 @@ std::shared_ptr<DeckPlayback> Deck::rebuild_playback(
 
 bool Deck::load(const juce::File& file) {
     std::lock_guard<std::mutex> lock(load_mutex_);
+    loaded_file_ = file;
+
+    // Reset sync state on track load
+    set_sync_rate_trim(1.0);
+    set_nudge_offset_beats(0.0);
 
     auto analysis_reader = std::unique_ptr<juce::AudioFormatReader>(
         format_manager_.createReaderFor(file));
@@ -60,11 +92,38 @@ bool Deck::load(const juce::File& file) {
     duration_seconds_ =
         static_cast<double>(analysis_reader->lengthInSamples) / analysis_reader->sampleRate;
 
-    const auto container_tags = parse_container_tags(file);
-    const auto mono = read_mono_preview(*analysis_reader, 90.0, 11025.0);
-    analysis_ = analyze_track(
-        *analysis_reader, mono, 11025.0,
-        container_tags.getAllKeys().size() > 0 ? &container_tags : nullptr);
+    juce::File sidecar_file = file.getParentDirectory().getChildFile(file.getFileName() + ".json");
+    bool loaded_from_sidecar = false;
+    analysis_ = TrackAnalysis(); // Reset
+
+    if (sidecar_file.existsAsFile()) {
+        const juce::String json_str = sidecar_file.loadFileAsString();
+        const juce::var parsed = juce::JSON::parse(json_str);
+        loaded_from_sidecar = analysis_from_sidecar_json(parsed, analysis_);
+    }
+
+    if (!loaded_from_sidecar) {
+        const auto container_tags = parse_container_tags(file);
+        const auto mono = read_mono_preview(*analysis_reader, 90.0, 11025.0);
+        analysis_ = analyze_track(
+            *analysis_reader, mono, 11025.0,
+            container_tags.getAllKeys().size() > 0 ? &container_tags : nullptr);
+
+        const juce::String json_text = juce::JSON::toString(
+            analysis_to_sidecar_json(analysis_, file.getFullPathName()));
+        sidecar_file.replaceWithText(json_text);
+    }
+
+    // Set atomic grid fields
+    set_native_bpm(analysis_.bpm);
+    set_grid_offset(analysis_.beatgrid_offset_seconds);
+    if (analysis_.beats_valid && !analysis_.beats.empty()) {
+        auto beats_vec = std::make_shared<const std::vector<double>>(analysis_.beats);
+        set_beats(beats_vec);
+    } else {
+        set_beats(nullptr);
+    }
+
     analysis_reader.reset();
 
     auto reader = std::unique_ptr<juce::AudioFormatReader>(
@@ -73,9 +132,10 @@ bool Deck::load(const juce::File& file) {
         return false;
 
     peaks_ = compute_waveform_peaks(*reader, 512);
-    playback_ = rebuild_playback(std::move(reader));
-    playback_->cue_position = 0.0;
-    ensure_playback_prepared(playback_);
+    auto pb = rebuild_playback(std::move(reader));
+    pb->cue_position = 0.0;
+    ensure_playback_prepared(pb);
+    std::atomic_store(&playback_, pb);
     return true;
 }
 
@@ -83,28 +143,28 @@ void Deck::prepare_to_play(int samples_per_block, double sample_rate) {
     block_size_ = samples_per_block;
     sample_rate_ = sample_rate;
 
-    std::lock_guard<std::mutex> lock(load_mutex_);
-    if (playback_ == nullptr)
+    auto pb = playback();
+    if (pb == nullptr)
         return;
 
-    playback_->transport->prepareToPlay(samples_per_block, sample_rate);
-    playback_->time_stretch->prepareToPlay(samples_per_block, sample_rate);
+    pb->transport->prepareToPlay(samples_per_block, sample_rate);
+    pb->time_stretch->prepareToPlay(samples_per_block, sample_rate);
 
     juce::dsp::ProcessSpec spec;
     spec.sampleRate = sample_rate;
     spec.maximumBlockSize = static_cast<juce::uint32>(samples_per_block);
     spec.numChannels = 2;
-    playback_->eq.prepare(spec);
-    playback_->filter.prepare(spec);
+    pb->eq.prepare(spec);
+    pb->filter.prepare(spec);
 }
 
 void Deck::release_resources() {
-    std::lock_guard<std::mutex> lock(load_mutex_);
-    if (playback_ == nullptr)
+    auto pb = playback();
+    if (pb == nullptr)
         return;
 
-    playback_->time_stretch->releaseResources();
-    playback_->transport->releaseResources();
+    pb->time_stretch->releaseResources();
+    pb->transport->releaseResources();
 }
 
 void Deck::ensure_playback_prepared(const std::shared_ptr<DeckPlayback>& pb) {
@@ -156,8 +216,18 @@ void Deck::get_next_audio_block(const juce::AudioSourceChannelInfo& info) {
         return;
     }
 
-    ensure_playback_prepared(pb);
     apply_stretch_settings(pb);
+
+    if (loop_active_.load(std::memory_order_relaxed)) {
+        double start = loop_start_seconds_.load(std::memory_order_relaxed);
+        double end = loop_end_seconds_.load(std::memory_order_relaxed);
+        if (start >= 0.0 && end > start) {
+            double current = pb->transport->getCurrentPosition();
+            if (current >= end) {
+                pb->transport->setPosition(start + (current - end));
+            }
+        }
+    }
 
     pb->time_stretch->getNextAudioBlock(info);
 
@@ -185,6 +255,9 @@ DeckSnapshot Deck::snapshot() const {
     state.filter_amount = filter_amount_.load(std::memory_order_relaxed);
     state.tempo_ratio = tempo_ratio_.load(std::memory_order_relaxed);
     state.key_lock = key_lock_.load(std::memory_order_relaxed);
+    state.loop_active = loop_active_.load(std::memory_order_relaxed);
+    state.loop_start_seconds = static_cast<float>(loop_start_seconds_.load(std::memory_order_relaxed));
+    state.loop_end_seconds = static_cast<float>(loop_end_seconds_.load(std::memory_order_relaxed));
 
     auto pb = playback();
     state.loaded = pb != nullptr;
@@ -213,8 +286,19 @@ void Deck::cue() {
     if (pb == nullptr)
         return;
 
-    pb->transport->stop();
-    pb->transport->setPosition(pb->cue_position);
+    if (pb->transport->isPlaying()) {
+        pb->transport->stop();
+        pb->transport->setPosition(pb->cue_position);
+    } else {
+        double current = pb->transport->getCurrentPosition();
+        if (quantize_enabled_.load(std::memory_order_relaxed)) {
+            auto beats_ptr = beats();
+            std::vector<double> empty_beats;
+            const std::vector<double>& beats_vec = beats_ptr ? *beats_ptr : empty_beats;
+            current = snap_to_beat(current, native_bpm(), grid_offset(), beats_vec);
+        }
+        pb->cue_position = current;
+    }
 }
 
 void Deck::seek(double position_seconds) {
@@ -222,7 +306,14 @@ void Deck::seek(double position_seconds) {
     if (pb == nullptr)
         return;
 
-    pb->transport->setPosition(position_seconds);
+    double final_pos = position_seconds;
+    if (quantize_enabled_.load(std::memory_order_relaxed)) {
+        auto beats_ptr = beats();
+        std::vector<double> empty_beats;
+        const std::vector<double>& beats_vec = beats_ptr ? *beats_ptr : empty_beats;
+        final_pos = snap_to_beat(final_pos, native_bpm(), grid_offset(), beats_vec);
+    }
+    pb->transport->setPosition(final_pos);
 }
 
 void Deck::set_volume(float gain) {
@@ -276,6 +367,135 @@ std::vector<float> Deck::waveform_peaks() const {
 TrackAnalysis Deck::track_analysis() const {
     std::lock_guard<std::mutex> lock(load_mutex_);
     return analysis_;
+}
+
+void Deck::set_native_bpm(double bpm) {
+    native_bpm_.store(bpm, std::memory_order_relaxed);
+}
+
+double Deck::native_bpm() const {
+    return native_bpm_.load(std::memory_order_relaxed);
+}
+
+void Deck::set_grid_offset(double offset) {
+    grid_offset_.store(offset, std::memory_order_relaxed);
+}
+
+double Deck::grid_offset() const {
+    return grid_offset_.load(std::memory_order_relaxed);
+}
+
+void Deck::set_beatgrid(double bpm, double offset) {
+    set_native_bpm(bpm);
+    set_grid_offset(offset);
+
+    // Regenerate beats array
+    double duration = duration_seconds_;
+    std::vector<double> new_beats;
+    if (bpm > 0.0) {
+        double beat_duration = 60.0 / bpm;
+        double t = offset;
+        while (t >= beat_duration) t -= beat_duration;
+        for (; t < duration; t += beat_duration) {
+            new_beats.push_back(t);
+        }
+    }
+    set_beats(std::make_shared<const std::vector<double>>(new_beats));
+
+    save_sidecar();
+}
+
+void Deck::save_sidecar() const {
+    if (loaded_file_ == juce::File())
+        return;
+
+    juce::File sidecar_file = loaded_file_.getParentDirectory().getChildFile(loaded_file_.getFileName() + ".json");
+
+    TrackAnalysis sidecar = analysis_;
+    sidecar.bpm = native_bpm();
+    sidecar.bpm_valid = true;
+    sidecar.beatgrid_offset_seconds = grid_offset();
+    sidecar.beatgrid_offset_valid = true;
+
+    auto beats_ptr = beats();
+    if (beats_ptr) {
+        sidecar.beats = *beats_ptr;
+        sidecar.beats_valid = !beats_ptr->empty();
+        sidecar.downbeats = derive_downbeats(sidecar.beats);
+        sidecar.downbeats_valid = !sidecar.downbeats.empty();
+    }
+
+    const juce::String json_text = juce::JSON::toString(
+        analysis_to_sidecar_json(sidecar, loaded_file_.getFullPathName()));
+    sidecar_file.replaceWithText(json_text);
+}
+
+void Deck::set_sync_rate_trim(double trim) {
+    sync_rate_trim_.store(trim, std::memory_order_relaxed);
+}
+
+double Deck::sync_rate_trim() const {
+    return sync_rate_trim_.load(std::memory_order_relaxed);
+}
+
+void Deck::set_nudge_offset_beats(double nudge) {
+    nudge_offset_beats_.store(nudge, std::memory_order_relaxed);
+}
+
+double Deck::nudge_offset_beats() const {
+    return nudge_offset_beats_.load(std::memory_order_relaxed);
+}
+
+void Deck::set_beats(std::shared_ptr<const std::vector<double>> beats) {
+    std::atomic_store(&beats_, beats);
+}
+
+std::shared_ptr<const std::vector<double>> Deck::beats() const {
+    return std::atomic_load(&beats_);
+}
+
+void Deck::set_quantize(bool enabled) {
+    quantize_enabled_.store(enabled, std::memory_order_relaxed);
+}
+
+bool Deck::quantize_enabled() const {
+    return quantize_enabled_.load(std::memory_order_relaxed);
+}
+
+double Deck::start_delay_seconds() const {
+    auto pb = playback();
+    if (pb == nullptr || pb->time_stretch == nullptr)
+        return 0.0;
+    return pb->time_stretch->start_delay_seconds();
+}
+
+double Deck::audible_position_seconds() const {
+    auto pb = playback();
+    if (pb == nullptr || pb->transport == nullptr)
+        return 0.0;
+    double pos = pb->transport->getCurrentPosition();
+    return pos - start_delay_seconds();
+}
+
+void Deck::set_loop_points(double start_seconds, double end_seconds) {
+    loop_start_seconds_.store(start_seconds, std::memory_order_relaxed);
+    loop_end_seconds_.store(end_seconds, std::memory_order_relaxed);
+}
+
+void Deck::set_loop_active(bool active) {
+    loop_active_.store(active, std::memory_order_relaxed);
+}
+
+bool Deck::loop_active() const {
+    return loop_active_.load(std::memory_order_relaxed);
+}
+
+double Deck::loop_start_seconds() const {
+    return loop_start_seconds_.load(std::memory_order_relaxed);
+}
+
+double Deck::loop_end_seconds() const {
+    return loop_end_seconds_.load(std::memory_order_relaxed);
 }
 
 } // namespace freedeck

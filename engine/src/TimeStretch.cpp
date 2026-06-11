@@ -46,6 +46,7 @@ double TimeStretch::input_samples_consumed_per_block(int output_samples) const {
 
 void TimeStretch::prepareToPlay(int samplesPerBlockExpected, double sampleRate) {
     block_size_ = samplesPerBlockExpected;
+    sample_rate_ = sampleRate;
     input_->prepareToPlay(samplesPerBlockExpected, sampleRate);
 
     stretcher_ = std::make_unique<RubberBand::RubberBandStretcher>(
@@ -88,6 +89,12 @@ void TimeStretch::releaseResources() {
 
 bool TimeStretch::is_prepared() const {
     return stretcher_ != nullptr;
+}
+
+double TimeStretch::start_delay_seconds() const {
+    if (stretcher_ == nullptr || is_unity_playback(dj_tempo_ratio_, pitch_scale_))
+        return 0.0;
+    return static_cast<double>(stretcher_->getStartDelay()) / sample_rate_;
 }
 
 void TimeStretch::getNextAudioBlock(const juce::AudioSourceChannelInfo& info) {

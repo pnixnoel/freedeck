@@ -1,4 +1,5 @@
 #include "TrackAnalysis.h"
+#include "freedeck/engine.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_dsp/juce_dsp.h>
@@ -7,6 +8,7 @@
 #include <cmath>
 #include <cctype>
 #include <cstring>
+#include <mutex>
 
 namespace freedeck {
 
@@ -571,6 +573,197 @@ static juce::StringPairArray merge_metadata(
     return merged;
 }
 
+std::vector<double> detect_beats_dp(
+    const std::vector<float>& mono,
+    double sample_rate,
+    float bpm,
+    double duration) {
+    
+    if (mono.size() < 4096 || sample_rate <= 0.0 || bpm <= 0.f)
+        return {};
+
+    constexpr int kHop = 512;
+    std::vector<float> energy;
+    energy.reserve(mono.size() / static_cast<size_t>(kHop) + 1);
+
+    for (size_t start = 0; start < mono.size(); start += static_cast<size_t>(kHop)) {
+        const size_t end = juce::jmin(start + static_cast<size_t>(kHop), mono.size());
+        float frame_energy = 0.f;
+        for (size_t i = start; i < end; ++i)
+            frame_energy += mono[i] * mono[i];
+        energy.push_back(frame_energy);
+    }
+
+    if (energy.size() < 16)
+        return {};
+
+    std::vector<float> onset(energy.size(), 0.f);
+    onset[0] = energy[0];
+    for (size_t i = 1; i < energy.size(); ++i) {
+        onset[i] = juce::jmax(0.f, energy[i] - energy[i - 1]);
+    }
+
+    const double hop_hz = sample_rate / static_cast<double>(kHop);
+    const double delta = hop_hz * 60.0 / bpm;
+
+    int N = static_cast<int>(onset.size());
+    std::vector<double> C(N, 0.0);
+    std::vector<int> P(N, -1);
+
+    constexpr double lambda = 5.0;
+
+    for (int i = 0; i < N; ++i) {
+        C[i] = onset[i];
+        P[i] = -1;
+
+        int search_min = static_cast<int>(std::round(i - 2.0 * delta));
+        int search_max = static_cast<int>(std::round(i - 0.5 * delta));
+        search_min = std::max(0, search_min);
+        search_max = std::max(0, search_max);
+
+        double best_prev_score = -1e9;
+        int best_prev_idx = -1;
+
+        for (int j = search_min; j <= search_max; ++j) {
+            double interval = i - j;
+            if (interval <= 0) continue;
+            double ratio = interval / delta;
+            double cost = -lambda * std::pow(std::log2(ratio), 2.0);
+            double score = C[j] + cost;
+            if (score > best_prev_score) {
+                best_prev_score = score;
+                best_prev_idx = j;
+            }
+        }
+
+        if (best_prev_idx != -1 && best_prev_score + onset[i] > C[i]) {
+            C[i] = onset[i] + best_prev_score;
+            P[i] = best_prev_idx;
+        }
+    }
+
+    int best_end_idx = -1;
+    double best_end_score = -1e9;
+    int search_start = std::max(0, static_cast<int>(N - 3.0 * delta));
+    for (int i = search_start; i < N; ++i) {
+        if (C[i] > best_end_score) {
+            best_end_score = C[i];
+            best_end_idx = i;
+        }
+    }
+
+    if (best_end_idx == -1)
+        return {};
+
+    std::vector<int> beat_frames;
+    int curr = best_end_idx;
+    while (curr != -1) {
+        beat_frames.push_back(curr);
+        curr = P[curr];
+    }
+    std::reverse(beat_frames.begin(), beat_frames.end());
+
+    std::vector<double> beats;
+    for (int f : beat_frames) {
+        double t = static_cast<double>(f) * kHop / sample_rate;
+        beats.push_back(t);
+    }
+
+    // Extrapolate beats to the end of the track
+    if (beats.size() >= 2 && duration > beats.back()) {
+        size_t num_to_average = std::min(beats.size() - 1, size_t(8));
+        double sum_intervals = 0.0;
+        for (size_t i = beats.size() - num_to_average; i < beats.size(); ++i) {
+            sum_intervals += (beats[i] - beats[i - 1]);
+        }
+        double avg_interval = sum_intervals / num_to_average;
+        if (avg_interval <= 0.0) avg_interval = 60.0 / bpm;
+
+        double t = beats.back() + avg_interval;
+        while (t < duration) {
+            beats.push_back(t);
+            t += avg_interval;
+        }
+    } else if (beats.empty() && bpm > 0.f) {
+        double beat_duration = 60.0 / bpm;
+        double t = 0.0;
+        while (t < duration) {
+            beats.push_back(t);
+            t += beat_duration;
+        }
+    }
+
+    return beats;
+}
+
+bool beats_are_monotonic(const std::vector<double>& beats, double min_gap_seconds) {
+    if (beats.size() < 2)
+        return !beats.empty();
+    for (size_t i = 1; i < beats.size(); ++i) {
+        if (beats[i] <= beats[i - 1] + min_gap_seconds)
+            return false;
+    }
+    return true;
+}
+
+std::vector<double> derive_downbeats(const std::vector<double>& beats, int beats_per_bar) {
+    std::vector<double> downbeats;
+    if (beats.empty() || beats_per_bar < 1)
+        return downbeats;
+    for (size_t i = 0; i < beats.size(); i += static_cast<size_t>(beats_per_bar))
+        downbeats.push_back(beats[i]);
+    return downbeats;
+}
+
+float compute_preview_loudness_db(const std::vector<float>& mono) {
+    if (mono.empty())
+        return -100.f;
+    double sum_sq = 0.0;
+    for (float s : mono)
+        sum_sq += static_cast<double>(s) * static_cast<double>(s);
+    const double rms = std::sqrt(sum_sq / static_cast<double>(mono.size()));
+    if (rms <= 1e-9)
+        return -100.f;
+    return static_cast<float>(20.0 * std::log10(rms));
+}
+
+namespace {
+
+void apply_rhythm_result(TrackAnalysis& out, const TrackAnalysis& rhythm, const char* backend) {
+    if (!rhythm.bpm_valid && !rhythm.beats_valid)
+        return;
+    if (rhythm.bpm_valid) {
+        out.bpm = rhythm.bpm;
+        out.bpm_valid = true;
+        out.bpm_source = AnalysisSource::Audio;
+    }
+    if (rhythm.beats_valid) {
+        out.beats = rhythm.beats;
+        out.beats_valid = true;
+        out.beatgrid_offset_seconds = rhythm.beatgrid_offset_seconds;
+        out.beatgrid_offset_valid = rhythm.beatgrid_offset_valid;
+    }
+    out.analysis_confidence = rhythm.analysis_confidence;
+    out.analyzer_backend = backend;
+}
+
+void finalize_analysis(TrackAnalysis& out, const std::vector<float>& mono_preview) {
+    if (out.beats_valid && out.beats.size() >= 4) {
+        out.downbeats = derive_downbeats(out.beats);
+        out.downbeats_valid = !out.downbeats.empty();
+    }
+    if (!mono_preview.empty())
+        out.loudness_rms_db = compute_preview_loudness_db(mono_preview);
+    if (out.analyzer_backend.empty()) {
+        if (out.bpm_source == AnalysisSource::Metadata || out.key_source == AnalysisSource::Metadata)
+            out.analyzer_backend = "metadata";
+        else if (out.bpm_valid || out.beats_valid || out.key_valid)
+            out.analyzer_backend = "builtin";
+    }
+}
+
+} // namespace
+
 TrackAnalysis analyze_track(
     juce::AudioFormatReader& reader,
     const std::vector<float>& mono_preview,
@@ -590,29 +783,520 @@ TrackAnalysis analyze_track(
         out.key_source = AnalysisSource::Metadata;
     }
 
-    if (!out.bpm_valid &&
-        mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4)) {
+    const bool enough_audio =
+        mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4);
+    const bool enough_audio_for_key =
+        mono_preview.size() > static_cast<size_t>(preview_sample_rate * 8);
+
+#ifdef FREEDECK_USE_ESSENTIA
+    if (enough_audio && !out.beats_valid) {
+        if (auto essentia_res = detect_bpm_and_beats_essentia(mono_preview, preview_sample_rate))
+            apply_rhythm_result(out, *essentia_res, "essentia");
+    }
+    if (enough_audio_for_key && !out.key_valid) {
+        if (auto essentia_key = detect_key_essentia(mono_preview, preview_sample_rate)) {
+            out.key = *essentia_key;
+            out.key_valid = true;
+            out.key_source = AnalysisSource::Audio;
+        }
+    }
+#endif
+
+#ifdef FREEDECK_USE_AUBIO
+    if (enough_audio && !out.beats_valid) {
+        if (auto aubio_res = detect_bpm_and_beats_aubio(mono_preview, preview_sample_rate))
+            apply_rhythm_result(out, *aubio_res, "aubio");
+    }
+#endif
+
+    if (!out.bpm_valid && enough_audio) {
         if (auto bpm = detect_bpm(mono_preview, preview_sample_rate)) {
             out.bpm = *bpm;
             out.bpm_valid = true;
             out.bpm_source = AnalysisSource::Audio;
+            if (out.analyzer_backend.empty())
+                out.analyzer_backend = "builtin";
         }
     }
-    if (!out.key_valid &&
-        mono_preview.size() > static_cast<size_t>(preview_sample_rate * 8)) {
+    if (!out.key_valid && enough_audio_for_key) {
         if (auto key = detect_key(mono_preview, preview_sample_rate)) {
             out.key = *key;
             out.key_valid = true;
             out.key_source = AnalysisSource::Audio;
         }
     }
-    if (out.bpm_valid &&
-        mono_preview.size() > static_cast<size_t>(preview_sample_rate * 4)) {
+
+    if (out.bpm_valid && !out.beats_valid && enough_audio) {
+        const double duration =
+            static_cast<double>(reader.lengthInSamples) / reader.sampleRate;
+        out.beats = detect_beats_dp(mono_preview, preview_sample_rate, out.bpm, duration);
+        out.beats_valid = !out.beats.empty();
+        if (out.beats_valid) {
+            out.beatgrid_offset_seconds = static_cast<float>(out.beats.front());
+            out.beatgrid_offset_valid = true;
+            if (out.analyzer_backend.empty() || out.analyzer_backend == "metadata")
+                out.analyzer_backend = "builtin";
+        }
+    }
+
+    if (out.bpm_valid && !out.beatgrid_offset_valid && enough_audio) {
         if (auto offset = detect_beatgrid_offset(mono_preview, preview_sample_rate, out.bpm)) {
             out.beatgrid_offset_seconds = *offset;
             out.beatgrid_offset_valid = true;
         }
     }
+
+    finalize_analysis(out, mono_preview);
+    return out;
+}
+
+#ifdef FREEDECK_USE_AUBIO
+#include <aubio/aubio.h>
+
+class AubioBpmDetector {
+public:
+    explicit AubioBpmDetector(double sample_rate, uint_t win_size = 1024, uint_t hop_size = 512)
+        : sample_rate_(sample_rate), hop_size_(hop_size) {
+        tempo_ = new_aubio_tempo("default", win_size, hop_size, static_cast<uint_t>(sample_rate));
+    }
+
+    ~AubioBpmDetector() {
+        if (tempo_) {
+            del_aubio_tempo(tempo_);
+        }
+    }
+
+    bool process(
+        const std::vector<float>& mono,
+        std::vector<double>& out_beats,
+        float& out_bpm,
+        float& out_confidence) {
+        if (!tempo_) return false;
+
+        fvec_t* in = new_fvec(hop_size_);
+        fvec_t* out = new_fvec(1);
+        if (!in || !out) {
+            if (in) del_fvec(in);
+            if (out) del_fvec(out);
+            return false;
+        }
+
+        size_t offset = 0;
+        while (offset + hop_size_ <= mono.size()) {
+            for (uint_t i = 0; i < hop_size_; ++i) {
+                in->data[i] = mono[offset + i];
+            }
+
+            aubio_tempo_do(tempo_, in, out);
+
+            if (out->data[0] != 0.0f) {
+                double beat_time = aubio_tempo_get_last_s(tempo_);
+                if (beat_time > 0.0) {
+                    if (out_beats.empty() || beat_time > out_beats.back() + 0.05) {
+                        out_beats.push_back(beat_time);
+                    }
+                }
+            }
+            offset += hop_size_;
+        }
+
+        out_bpm = aubio_tempo_get_bpm(tempo_);
+        out_confidence = static_cast<float>(aubio_tempo_get_confidence(tempo_));
+
+        del_fvec(in);
+        del_fvec(out);
+
+        return out_confidence >= 0.05f && beats_are_monotonic(out_beats);
+    }
+
+private:
+    double sample_rate_;
+    uint_t hop_size_;
+    aubio_tempo_t* tempo_{nullptr};
+};
+
+class AubioOnsetDetector {
+public:
+    explicit AubioOnsetDetector(double sample_rate, uint_t win_size = 1024, uint_t hop_size = 512)
+        : hop_size_(hop_size) {
+        onset_ = new_aubio_onset("default", win_size, hop_size, static_cast<uint_t>(sample_rate));
+    }
+
+    ~AubioOnsetDetector() {
+        if (onset_) {
+            del_aubio_onset(onset_);
+        }
+    }
+
+    bool process(const std::vector<float>& mono, std::vector<double>& out_onsets) {
+        if (!onset_) return false;
+
+        fvec_t* in = new_fvec(hop_size_);
+        fvec_t* out = new_fvec(1);
+        if (!in || !out) {
+            if (in) del_fvec(in);
+            if (out) del_fvec(out);
+            return false;
+        }
+
+        size_t offset = 0;
+        while (offset + hop_size_ <= mono.size()) {
+            for (uint_t i = 0; i < hop_size_; ++i) {
+                in->data[i] = mono[offset + i];
+            }
+
+            aubio_onset_do(onset_, in, out);
+
+            if (out->data[0] != 0.0f) {
+                double onset_time = aubio_onset_get_last_s(onset_);
+                if (onset_time > 0.0) {
+                    out_onsets.push_back(onset_time);
+                }
+            }
+            offset += hop_size_;
+        }
+
+        del_fvec(in);
+        del_fvec(out);
+        return !out_onsets.empty();
+    }
+
+private:
+    uint_t hop_size_;
+    aubio_onset_t* onset_{nullptr};
+};
+
+std::optional<TrackAnalysis> detect_bpm_and_beats_aubio(
+    const std::vector<float>& mono,
+    double sample_rate) {
+    if (mono.size() < 4096 || sample_rate <= 0.0)
+        return std::nullopt;
+
+    AubioBpmDetector detector(sample_rate);
+    std::vector<double> detected_beats;
+    float bpm = 0.f;
+    float confidence = 0.f;
+
+    if (!detector.process(mono, detected_beats, bpm, confidence)) {
+        return std::nullopt;
+    }
+
+    bpm = resolve_bpm_with_prior(bpm);
+
+    if (bpm < 40.f || bpm > 250.f || std::isnan(bpm)) {
+        return std::nullopt;
+    }
+
+    TrackAnalysis res;
+    res.bpm = bpm;
+    res.bpm_valid = true;
+    res.bpm_source = AnalysisSource::Audio;
+    res.beats = detected_beats;
+    res.beats_valid = true;
+    res.beatgrid_offset_seconds = static_cast<float>(detected_beats.front());
+    res.beatgrid_offset_valid = true;
+    res.analysis_confidence = confidence;
+    res.analyzer_backend = "aubio";
+
+    return res;
+}
+#endif
+
+#ifdef FREEDECK_USE_ESSENTIA
+#include <essentia/algorithmfactory.h>
+#include <essentia/essentia.h>
+
+class EssentiaBpmDetector {
+public:
+    explicit EssentiaBpmDetector(double sample_rate) : sample_rate_(sample_rate) {
+        static std::once_flag init_flag;
+        std::call_once(init_flag, []() {
+            essentia::init();
+        });
+    }
+
+    bool process(
+        const std::vector<float>& mono,
+        std::vector<double>& out_beats,
+        float& out_bpm,
+        float& out_confidence) {
+        using namespace essentia;
+        using namespace essentia::standard;
+
+        Algorithm* rhythm = AlgorithmFactory::create("RhythmExtractor2013");
+        if (!rhythm) return false;
+
+        std::vector<float> beats_float;
+        std::vector<float> estimates;
+        float bpm = 0.0f;
+        float confidence = 0.0f;
+
+        rhythm->input("signal").set(mono);
+        rhythm->output("bpm").set(bpm);
+        rhythm->output("ticks").set(beats_float);
+        rhythm->output("confidence").set(confidence);
+        rhythm->output("estimates").set(estimates);
+
+        try {
+            rhythm->compute();
+        } catch (...) {
+            delete rhythm;
+            return false;
+        }
+
+        delete rhythm;
+
+        if (bpm <= 0.0f || std::isnan(bpm) || confidence < 0.3f) {
+            return false;
+        }
+
+        out_bpm = resolve_bpm_with_prior(bpm);
+        out_confidence = confidence;
+        out_beats.clear();
+        for (float t : beats_float) {
+            out_beats.push_back(static_cast<double>(t));
+        }
+
+        return beats_are_monotonic(out_beats);
+    }
+
+private:
+    double sample_rate_;
+};
+
+class EssentiaKeyDetector {
+public:
+    explicit EssentiaKeyDetector(double sample_rate) : sample_rate_(sample_rate) {
+        static std::once_flag init_flag;
+        std::call_once(init_flag, []() {
+            essentia::init();
+        });
+    }
+
+    bool process(const std::vector<float>& mono, std::string& out_key) {
+        using namespace essentia;
+        using namespace essentia::standard;
+
+        Algorithm* key_extractor = AlgorithmFactory::create("KeyExtractor");
+        if (!key_extractor) return false;
+
+        std::string key;
+        std::string scale;
+        float strength = 0.0f;
+
+        key_extractor->input("signal").set(mono);
+        key_extractor->output("key").set(key);
+        key_extractor->output("scale").set(scale);
+        key_extractor->output("strength").set(strength);
+
+        try {
+            key_extractor->compute();
+        } catch (...) {
+            delete key_extractor;
+            return false;
+        }
+
+        delete key_extractor;
+
+        if (key.empty()) return false;
+
+        std::string raw_key = key;
+        if (scale == "minor") {
+            raw_key += "m";
+        }
+        out_key = normalize_key_notation(raw_key);
+        return !out_key.empty();
+    }
+
+private:
+    double sample_rate_;
+};
+
+std::optional<TrackAnalysis> detect_bpm_and_beats_essentia(
+    const std::vector<float>& mono,
+    double sample_rate) {
+    if (mono.size() < 4096 || sample_rate <= 0.0)
+        return std::nullopt;
+
+    EssentiaBpmDetector detector(sample_rate);
+    std::vector<double> detected_beats;
+    float bpm = 0.f;
+    float confidence = 0.f;
+
+    if (!detector.process(mono, detected_beats, bpm, confidence))
+        return std::nullopt;
+
+    if (bpm < 40.f || bpm > 250.f || std::isnan(bpm))
+        return std::nullopt;
+
+    TrackAnalysis res;
+    res.bpm = bpm;
+    res.bpm_valid = true;
+    res.bpm_source = AnalysisSource::Audio;
+    res.beats = detected_beats;
+    res.beats_valid = true;
+    res.beatgrid_offset_seconds = static_cast<float>(detected_beats.front());
+    res.beatgrid_offset_valid = true;
+    res.analysis_confidence = confidence;
+    res.analyzer_backend = "essentia";
+    return res;
+}
+
+std::optional<std::string> detect_key_essentia(
+    const std::vector<float>& mono,
+    double sample_rate) {
+    if (mono.size() < 4096 || sample_rate <= 0.0)
+        return std::nullopt;
+
+    std::string essentia_key;
+    EssentiaKeyDetector detector(sample_rate);
+    if (!detector.process(mono, essentia_key))
+        return std::nullopt;
+    return essentia_key;
+}
+#endif
+
+juce::var analysis_to_sidecar_json(const TrackAnalysis& analysis, const juce::String& file_path) {
+    juce::DynamicObject::Ptr json_obj = new juce::DynamicObject();
+    json_obj->setProperty("version", 2);
+    json_obj->setProperty("file_path", file_path);
+    json_obj->setProperty("bpm", analysis.bpm);
+    json_obj->setProperty("key", juce::String(analysis.key));
+    json_obj->setProperty("grid_offset_seconds", analysis.beatgrid_offset_seconds);
+    json_obj->setProperty("analyzer_backend", juce::String(analysis.analyzer_backend));
+    json_obj->setProperty("analysis_confidence", analysis.analysis_confidence);
+    json_obj->setProperty("loudness_rms_db", analysis.loudness_rms_db);
+    json_obj->setProperty("edited", false);
+
+    juce::Array<juce::var> beats_arr;
+    for (double b : analysis.beats)
+        beats_arr.add(b);
+    json_obj->setProperty("beats", beats_arr);
+
+    juce::Array<juce::var> downbeats_arr;
+    for (double b : analysis.downbeats)
+        downbeats_arr.add(b);
+    json_obj->setProperty("downbeats", downbeats_arr);
+
+    return juce::var(json_obj.get());
+}
+
+bool analysis_from_sidecar_json(const juce::var& parsed, TrackAnalysis& out) {
+    if (!parsed.isObject())
+        return false;
+
+    const double bpm = parsed.getProperty("bpm", 0.0);
+    if (bpm <= 0.0)
+        return false;
+
+    out.bpm = static_cast<float>(bpm);
+    out.bpm_valid = true;
+    out.bpm_source = AnalysisSource::Audio;
+    out.beatgrid_offset_seconds =
+        static_cast<float>(parsed.getProperty("grid_offset_seconds", 0.0));
+    out.beatgrid_offset_valid = true;
+
+    const juce::String key = parsed.getProperty("key", "").toString();
+    if (key.isNotEmpty()) {
+        out.key = key.toStdString();
+        out.key_valid = true;
+        out.key_source = AnalysisSource::Audio;
+    }
+
+    const juce::var beats_val = parsed.getProperty("beats", juce::var());
+    if (beats_val.isArray()) {
+        out.beats.clear();
+        const auto* arr = beats_val.getArray();
+        for (int i = 0; i < arr->size(); ++i)
+            out.beats.push_back((*arr)[i]);
+        out.beats_valid = !out.beats.empty();
+    }
+
+    const juce::var downbeats_val = parsed.getProperty("downbeats", juce::var());
+    if (downbeats_val.isArray()) {
+        out.downbeats.clear();
+        const auto* arr = downbeats_val.getArray();
+        for (int i = 0; i < arr->size(); ++i)
+            out.downbeats.push_back((*arr)[i]);
+        out.downbeats_valid = !out.downbeats.empty();
+    } else if (out.beats_valid) {
+        out.downbeats = derive_downbeats(out.beats);
+        out.downbeats_valid = !out.downbeats.empty();
+    }
+
+    out.analyzer_backend = parsed.getProperty("analyzer_backend", "").toString().toStdString();
+    out.analysis_confidence =
+        static_cast<float>(parsed.getProperty("analysis_confidence", 0.0));
+    out.loudness_rms_db =
+        static_cast<float>(parsed.getProperty("loudness_rms_db", 0.0));
+    return true;
+}
+
+TrackAnalysis analyze_file(const std::string& path) {
+    juce::AudioFormatManager format_manager;
+    format_manager.registerBasicFormats();
+
+    juce::File file(path);
+    auto reader = std::unique_ptr<juce::AudioFormatReader>(format_manager.createReaderFor(file));
+    TrackAnalysis out;
+    if (reader == nullptr) {
+        return out;
+    }
+
+    out.duration_seconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+
+    // Get metadata from reader tags
+    juce::String title = reader->metadataValues.getValue("title", reader->metadataValues.getValue("Title", reader->metadataValues.getValue("TITLE", "")));
+    if (title.isEmpty()) {
+        title = file.getFileNameWithoutExtension();
+    }
+    juce::String artist = reader->metadataValues.getValue("artist", reader->metadataValues.getValue("Artist", reader->metadataValues.getValue("ARTIST", "")));
+    juce::String album = reader->metadataValues.getValue("album", reader->metadataValues.getValue("Album", reader->metadataValues.getValue("ALBUM", "")));
+    juce::String genre = reader->metadataValues.getValue("genre", reader->metadataValues.getValue("Genre", reader->metadataValues.getValue("GENRE", "")));
+
+    out.title = title.toStdString();
+    out.artist = artist.toStdString();
+    out.album = album.toStdString();
+    out.genre = genre.toStdString();
+
+    // Check sidecar json
+    juce::File sidecar_file = file.getParentDirectory().getChildFile(file.getFileName() + ".json");
+    bool loaded_from_sidecar = false;
+
+    if (sidecar_file.existsAsFile()) {
+        const juce::String json_str = sidecar_file.loadFileAsString();
+        const juce::var parsed = juce::JSON::parse(json_str);
+        loaded_from_sidecar = analysis_from_sidecar_json(parsed, out);
+    }
+
+    if (!loaded_from_sidecar) {
+        const auto container_tags = parse_container_tags(file);
+        const auto mono = read_mono_preview(*reader, 90.0, 11025.0);
+        auto analysis = analyze_track(
+            *reader, mono, 11025.0,
+            container_tags.getAllKeys().size() > 0 ? &container_tags : nullptr);
+
+        out.bpm = analysis.bpm;
+        out.bpm_valid = analysis.bpm_valid;
+        out.bpm_source = analysis.bpm_source;
+        out.key = analysis.key;
+        out.key_valid = analysis.key_valid;
+        out.key_source = analysis.key_source;
+        out.beatgrid_offset_seconds = analysis.beatgrid_offset_seconds;
+        out.beatgrid_offset_valid = analysis.beatgrid_offset_valid;
+        out.beats = analysis.beats;
+        out.beats_valid = analysis.beats_valid;
+        out.downbeats = analysis.downbeats;
+        out.downbeats_valid = analysis.downbeats_valid;
+        out.analysis_confidence = analysis.analysis_confidence;
+        out.loudness_rms_db = analysis.loudness_rms_db;
+        out.analyzer_backend = analysis.analyzer_backend;
+
+        const juce::String json_text =
+            juce::JSON::toString(analysis_to_sidecar_json(out, file.getFullPathName()));
+        sidecar_file.replaceWithText(json_text);
+    }
+
     return out;
 }
 

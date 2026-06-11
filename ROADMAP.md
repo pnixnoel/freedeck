@@ -17,8 +17,8 @@ FreeDeck uses a **Shared Brain** architecture: a single C++ audio engine powers 
 ```mermaid
 flowchart LR
     G0["G0 v0.1 DONE"] --> G0b["G0b v0.1.1 DONE"]
-    G0b --> G1["G1 CURRENT: Continuous Beat Sync"]
-    G1 --> G2["G2 v0.3: Library + Cues"]
+    G0b --> G1["G1 DONE: Continuous Beat Sync"]
+    G1 --> G2["G2 CURRENT: Library + Cues"]
     G2 --> G3["G3 v0.4: Performance Ready"]
     G3 --> G4["G4 v0.5: Auto-Mix USP"]
     G4 --> G5["G5 v1.0: Controller + macOS Stable"]
@@ -29,18 +29,24 @@ flowchart LR
 |------|---------|--------|-------|
 | G0 | v0.1.0 | **Done** | 2-deck engine demo, one-shot TS sync |
 | G0b | v0.1.1 | **Done** | Bipolar filter, trim/gain, engine snapshot telemetry, GeekDataPanel, DSP tests |
-| **G1** | **v0.2.0** | **Current — immediate focus** | Continuous Beat Sync (Phases 1–4) |
-| G2 | v0.3.0 | Next | Real local library, hot cues, loops |
+| **G1** | **v0.2.0** | **Done** | Continuous Beat Sync (Phases 1–4) |
+| **G2** | **v0.3.0** | **In progress** | Real local library, hot cues, loops |
 | G3 | v0.4.0 | Planned | Remaining FX, headphone cue, recording |
 | G4 | v0.5.0 | Planned | Auto-Mix engine (requires G1 beatgrids) |
 | G5 | v1.0.0 | Planned | DDJ-FLX4 MIDI, 4-deck, macOS stable release |
 | G6 | v2.0.0 | Planned | KMP mobile hosts, Supabase cloud sync |
 
-**Advance rule:** Complete the current goal's Definition of Done, ship the mapped release, then move to the next goal. Do not start G2 until G1 Definition of Done passes.
+**Advance rule:** Complete the current goal's Definition of Done, ship the mapped release, then move to the next goal.
 
 ---
 
-## Current goal: G1 — Continuous Beat Sync
+## Current goal: G2 — Library + Cues + Loops
+
+**Status:** SQLite library, folder import, 8 hot cues, and engine looping landed on `setup-project` (v0.3.0).
+
+---
+
+## Completed goal: G1 — Continuous Beat Sync
 
 **Implementation plan:** [`.cursor/plans/continuous_beat_sync_ffd91553.plan.md`](.cursor/plans/continuous_beat_sync_ffd91553.plan.md)
 
@@ -65,52 +71,52 @@ Today's sync is one-shot in TypeScript (`apps/desktop/src/lib/sync.ts`). Pressin
 
 #### Phase 1 — Core continuous phase lock
 
-- [ ] Add per-deck sync atomics: `native_bpm_`, `grid_offset_`, `sync_rate_trim_`, `nudge_offset_beats_`
-- [ ] Add engine atomics: `master_deck_`, `sync_enabled_[2]`
-- [ ] Implement phase detector with `getStartDelay()` latency compensation
-- [ ] Implement Mixxx-style P-control (deadband 0.01, catch-up 0.20, Kp 0.7, slew ±2%/block, cap ±5%)
-- [ ] Multiply `sync_rate_trim_` in `Deck::apply_stretch_settings`
-- [ ] FFI: `set_sync`, `set_master`, `set_beatgrid` through engine.h → shim → bridge → lib.rs → engine.ts
-- [ ] TS: initial `alignFollowerToMaster` snap, then `engine.setSync(true)`; remove master-tempo re-seek `useEffect`
-- [ ] TS: nudge/pitch-bend as temporary offset with re-lock on release (Tempo Sync mode)
-- [ ] RT hardening: remove `Deck::playback()` mutex from audio hot path
-- [ ] RT hardening: move `ensure_playback_prepared` off audio thread
-- [ ] RT hardening: explicit 128–256 sample device buffer
-- [ ] Tests: `engine/test/sync_test.cpp` + extended `apps/desktop/src/lib/sync.test.ts`
+- [x] Add per-deck sync atomics: `native_bpm_`, `grid_offset_`, `sync_rate_trim_`, `nudge_offset_beats_`
+- [x] Add engine atomics: `master_deck_`, `sync_enabled_[2]`
+- [x] Implement phase detector with `getStartDelay()` latency compensation
+- [x] Implement Mixxx-style P-control (deadband 0.01, catch-up 0.20, Kp 0.7, slew ±2%/block, cap ±5%)
+- [x] Multiply `sync_rate_trim_` in `Deck::apply_stretch_settings`
+- [x] FFI: `set_sync`, `set_master`, `set_beatgrid` through engine.h → shim → bridge → lib.rs → engine.ts
+- [x] TS: initial `alignFollowerToMaster` snap, then `engine.setSync(true)`; remove master-tempo re-seek `useEffect`
+- [x] TS: nudge/pitch-bend as temporary offset with re-lock on release (Tempo Sync mode)
+- [x] RT hardening: remove `Deck::playback()` mutex from audio hot path
+- [x] RT hardening: move `ensure_playback_prepared` off audio thread
+- [x] RT hardening: explicit 128–256 sample device buffer
+- [x] Tests: `engine/test/sync_test.cpp` + extended `apps/desktop/src/lib/sync.test.ts`
 
 #### Phase 2 — Phase meter + sync LEDs
 
-- [ ] Extend `EngineSnapshot` with `sync_phase_error`, synced/master flags, `buffer_size_ms`
-- [ ] Wire through Rust `TelemetryEvent` and `engine.ts` `Telemetry` type
-- [ ] Build `PhaseMeter` component (centered sliding bar)
-- [ ] Add MASTER / SYNCED / TEMPO-SYNC LED states in `TempoColumn`
+- [x] Extend `EngineSnapshot` with `sync_phase_error`, synced/master flags, `buffer_size_ms`
+- [x] Wire through Rust `TelemetryEvent` and `engine.ts` `Telemetry` type
+- [x] Build `PhaseMeter` component (centered sliding bar)
+- [x] Add MASTER / SYNCED / TEMPO-SYNC LED states in `TempoColumn`
 
 #### Phase 3 — Quantize
 
-- [ ] Add `snapToBeat` / `snapToBar` pure functions in `sync.ts` with unit tests
-- [ ] Quantize toggle in UI
-- [ ] Apply quantize to waveform seek, cue set, sync engage when enabled
+- [x] Add `snapToBeat` / `snapToBar` pure functions in `sync.ts` with unit tests
+- [x] Quantize toggle in UI
+- [x] Apply quantize to waveform seek, cue set, sync engage when enabled
 
 #### Phase 4 — Variable / editable beatgrid
 
-- [ ] Ellis DP beat tracking in `TrackAnalysis.cpp` → `beats[]` + downbeat indices
-- [ ] `engine_track_beats(deck)` FFI command
-- [ ] Lock-free swappable beat buffer (`shared_ptr<const vector<double>>`)
-- [ ] Phase math from interpolated beat index (variable tempo)
-- [ ] Per-track grid JSON persistence via Tauri fs
-- [ ] Edit UI MVP: offset nudge, set-downbeat, BPM x2/÷2
-- [ ] Tests: `engine/test/beatgrid_test.cpp` + TS persistence tests
+- [x] Ellis DP beat tracking in `TrackAnalysis.cpp` → `beats[]` + downbeat indices
+- [x] `engine_track_beats(deck)` FFI command
+- [x] Lock-free swappable beat buffer (`shared_ptr<const vector<double>>`)
+- [x] Phase math from interpolated beat index (variable tempo)
+- [x] Per-track grid JSON persistence via Tauri fs
+- [x] Edit UI MVP: offset nudge, set-downbeat, BPM x2/÷2
+- [x] Tests: `engine/test/beatgrid_test.cpp` + TS persistence tests
 
 ### Definition of Done (G1 → G2)
 
-- [ ] Two constant-BPM tracks stay phase-locked for 10+ minutes; residual error < 0.01 beat
-- [ ] SYNC engage: one-shot phrase snap + continuous hold (no re-seek on master tempo change)
-- [ ] Nudge/pitch-bend: temporary offset; P-control re-locks on release
-- [ ] Phase meter shows live `sync_phase_error` from engine
-- [ ] Variable-tempo test track locks via beat array (Phase 4)
-- [ ] Zero new mutex/alloc in audio callback sync path
-- [ ] `sync_test.cpp` + extended `sync.test.ts` green
-- [ ] GeekDataPanel shows sync phase error + latency metrics
+- [x] Two constant-BPM tracks stay phase-locked for 10+ minutes; residual error < 0.01 beat
+- [x] SYNC engage: one-shot phrase snap + continuous hold (no re-seek on master tempo change)
+- [x] Nudge/pitch-bend: temporary offset; P-control re-locks on release
+- [x] Phase meter shows live `sync_phase_error` from engine
+- [x] Variable-tempo test track locks via beat array (Phase 4)
+- [x] Zero new mutex/alloc in audio callback sync path
+- [x] `sync_test.cpp` + extended `sync.test.ts` green
+- [x] GeekDataPanel shows sync phase error + latency metrics
 
 ### Mathematical model (summary)
 

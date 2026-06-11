@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import { LIBRARY_TRACKS, PLAYLISTS, type LibraryTrack } from "../lib/mockLibrary";
+import { useEffect, useMemo, useState } from "react";
+import { type LibraryTrack, libraryGetTracks, libraryImportFolder, libraryDeleteTrack, formatTime } from "../lib/engine";
+import { open } from "@tauri-apps/plugin-dialog";
 
 type LibraryProps = {
   onLoadToDeck: (deck: 0 | 1, track?: LibraryTrack) => void;
@@ -8,26 +9,61 @@ type LibraryProps = {
 };
 
 export function Library({ onLoadToDeck, activeDeckA, activeDeckB }: LibraryProps) {
-  const [playlistId, setPlaylistId] = useState("recent");
+  const [tracks, setTracks] = useState<LibraryTrack[]>([]);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [targetDeck, setTargetDeck] = useState<0 | 1>(0);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const loadLibrary = async () => {
+    const list = await libraryGetTracks();
+    setTracks(list);
+  };
+
+  useEffect(() => {
+    loadLibrary();
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return LIBRARY_TRACKS;
-    return LIBRARY_TRACKS.filter(
+    if (!q) return tracks;
+    return tracks.filter(
       (t) =>
         t.title.toLowerCase().includes(q) ||
         t.artist.toLowerCase().includes(q) ||
         t.album.toLowerCase().includes(q) ||
         t.genre.toLowerCase().includes(q),
     );
-  }, [search]);
+  }, [search, tracks]);
 
   const handleRowDoubleClick = (track: LibraryTrack) => {
     setSelectedId(track.id);
     onLoadToDeck(targetDeck, track);
+  };
+
+  const handleImportFolder = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: true,
+      });
+      if (selected && !Array.isArray(selected)) {
+        setIsImporting(true);
+        await libraryImportFolder(selected);
+        setIsImporting(false);
+        await loadLibrary();
+      }
+    } catch (err) {
+      console.error("Failed to import folder:", err);
+      setIsImporting(false);
+    }
+  };
+
+  const handleDeleteTrack = async (id: string) => {
+    if (confirm("Are you sure you want to remove this track from the library?")) {
+      await libraryDeleteTrack(id);
+      await loadLibrary();
+    }
   };
 
   const isActive = (track: LibraryTrack) =>
@@ -46,33 +82,9 @@ export function Library({ onLoadToDeck, activeDeckA, activeDeckB }: LibraryProps
             </span>
           </div>
           <ul className="px-2 py-1">
-            {["Local Library", "Apple Music", "Tidal"].map((src) => (
-              <li key={src} className="rounded px-2 py-0.5 text-[11px] text-zinc-600">
-                {src}
-              </li>
-            ))}
-          </ul>
-          <div className="border-t border-zinc-800/60 px-3 py-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              Playlists
-            </span>
-          </div>
-          <ul className="flex-1 overflow-y-auto px-2 py-1">
-            {PLAYLISTS.map((pl) => (
-              <li key={pl.id}>
-                <button
-                  type="button"
-                  onClick={() => setPlaylistId(pl.id)}
-                  className={`w-full rounded px-2 py-0.5 text-left text-[11px] ${
-                    playlistId === pl.id
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-400 hover:bg-zinc-900"
-                  }`}
-                >
-                  {pl.name}
-                </button>
-              </li>
-            ))}
+            <li className="rounded bg-zinc-800/60 px-2 py-0.5 text-[11px] text-zinc-200">
+              Local Library
+            </li>
           </ul>
         </aside>
 
@@ -82,6 +94,14 @@ export function Library({ onLoadToDeck, activeDeckA, activeDeckB }: LibraryProps
               <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                 Library
               </span>
+              <button
+                type="button"
+                onClick={handleImportFolder}
+                disabled={isImporting}
+                className="rounded bg-red-600 hover:bg-red-500 disabled:bg-zinc-800 text-white px-2.5 py-0.5 text-[10px] font-medium transition-colors cursor-pointer"
+              >
+                {isImporting ? "Importing..." : "Import Folder"}
+              </button>
               <label className="flex items-center gap-1.5 text-[10px] text-zinc-500">
                 Load to
                 <select
@@ -116,6 +136,7 @@ export function Library({ onLoadToDeck, activeDeckA, activeDeckB }: LibraryProps
                   <th className="px-3 py-1 font-medium">Time</th>
                   <th className="px-3 py-1 font-medium">BPM</th>
                   <th className="px-3 py-1 font-medium">Key</th>
+                  <th className="px-3 py-1 font-medium w-8 text-center"></th>
                 </tr>
               </thead>
               <tbody>
@@ -142,9 +163,22 @@ export function Library({ onLoadToDeck, activeDeckA, activeDeckB }: LibraryProps
                     <td className="px-3 py-1">{track.artist}</td>
                     <td className="px-3 py-1">{track.album}</td>
                     <td className="px-3 py-1">{track.genre}</td>
-                    <td className="px-3 py-1 font-mono">{track.duration}</td>
-                    <td className="px-3 py-1 font-mono">{track.bpm}</td>
+                    <td className="px-3 py-1 font-mono">{formatTime(track.duration)}</td>
+                    <td className="px-3 py-1 font-mono">{track.bpm.toFixed(1)}</td>
                     <td className="px-3 py-1 font-mono">{track.key}</td>
+                    <td className="px-3 py-1 text-center">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTrack(track.id);
+                        }}
+                        className="text-zinc-600 hover:text-red-500 text-[12px] font-bold px-1"
+                        title="Remove track from library"
+                      >
+                        &times;
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

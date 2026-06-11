@@ -33,4 +33,22 @@ TrackAnalysis analyze_track(
     double preview_sample_rate,
     const juce::StringPairArray* extra_metadata = nullptr);
 
+#ifdef FREEDECK_USE_AUBIO
+std::optional<TrackAnalysis> detect_bpm_and_beats_aubio(
+    const std::vector<float>& mono,
+    double sample_rate);
+#endif
+
+#ifdef FREEDECK_USE_ESSENTIA
+std::optional<TrackAnalysis> detect_bpm_and_beats_essentia(
+    const std::vector<float>& mono,
+    double sample_rate);
+std::optional<std::string> detect_key_essentia(
+    const std::vector<float>& mono,
+    double sample_rate);
+#endif
+
+juce::var analysis_to_sidecar_json(const TrackAnalysis& analysis, const juce::String& file_path);
+bool analysis_from_sidecar_json(const juce::var& parsed, TrackAnalysis& out);
+
 } // namespace freedeck

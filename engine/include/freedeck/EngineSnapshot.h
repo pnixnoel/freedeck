@@ -16,6 +16,12 @@ struct DeckSnapshot {
     float tempo_ratio = 1.0f;
     bool key_lock = true;
     bool loaded = false;
+    bool synced = false;
+    bool is_master = false;
+    float sync_phase_error = 0.0f; // beats, signed
+    bool loop_active = false;
+    float loop_start_seconds = 0.0f;
+    float loop_end_seconds = 0.0f;
 };
 
 struct EngineSnapshot {
@@ -26,6 +32,8 @@ struct EngineSnapshot {
     float crossfader_gain_b = 0.0f;
     DeckSnapshot deck_a;
     DeckSnapshot deck_b;
+    int32_t master_deck = -1;
+    float buffer_size_ms = 0.0f;
 };
 
 } // namespace freedeck

@@ -40,7 +40,7 @@ Version is declared in three places (must match on release):
 | **v1.0.0** | G5 | DDJ-FLX4 MIDI, 4-deck, macOS stable (signed + notarized) |
 | **v2.0.0** | G6 | KMP mobile (iOS + Android), Supabase cloud sync |
 
-**Current focus:** v0.2.0 (G1 Continuous Beat Sync). Do not tag v0.3.0 until G1 Definition of Done passes.
+**Current focus:** v0.3.0 (G2 Library + Cues + Loops). G1 (v0.2.0) Definition of Done is complete on `setup-project`.
 
 ---
 
@@ -133,26 +133,50 @@ Before tagging any v0.2.x release, verify the G1 Definition of Done items releva
 
 ### v0.2.0-alpha.1 gate (P1)
 
-- [ ] Two tracks phase-lock for 5+ minutes without audible drift
-- [ ] No re-seek on master tempo change while synced
-- [ ] `sync_test.cpp` green
-- [ ] No new mutex/alloc in audio callback sync path
+- [x] Two tracks phase-lock for 5+ minutes without audible drift (`sync_test.cpp` 600s simulation)
+- [x] No re-seek on master tempo change while synced
+- [x] `sync_test.cpp` green
+- [x] No new mutex/alloc in audio callback sync path
 
 ### v0.2.0-alpha.2 gate (P2)
 
-- [ ] Phase meter moves with live `sync_phase_error`
-- [ ] MASTER/SYNCED LEDs reflect engine state
+- [x] Phase meter moves with live `sync_phase_error`
+- [x] MASTER/SYNCED LEDs reflect engine state
 
 ### v0.2.0-beta gate (P3)
 
-- [ ] Quantize snaps waveform seek and cue to beat/bar
-- [ ] `sync.test.ts` extended tests green
+- [x] Quantize snaps waveform seek and cue to beat/bar
+- [x] `sync.test.ts` extended tests green
 
 ### v0.2.1 gate (P4)
 
-- [ ] Variable-tempo track locks via beat array
-- [ ] Beatgrid persists across reload
-- [ ] `beatgrid_test.cpp` green
+- [x] Variable-tempo track locks via beat array
+- [x] Beatgrid persists across reload
+- [x] `beatgrid_test.cpp` green
+
+### v0.2.0 final gate (G1 complete)
+
+- [x] `sync_test.cpp` includes 10-minute stability simulation
+- [x] `sync.test.ts` green (96 tests)
+- [x] Optional Aubio/Essentia backends behind CMake flags (off by default)
+- [x] Analyzer fallback chain: Essentia → Aubio → BuiltIn
+- [x] Sidecar JSON v2 stores `analyzer_backend`, confidence, downbeats, loudness
+- [x] `license_info()` reports linked optional backends
+
+---
+
+## Optional analyzer rollback plan
+
+Release builds default to **no optional analyzers** (`FREEDECK_USE_AUBIO=OFF`, `FREEDECK_USE_ESSENTIA=OFF`).
+
+If a release was built with optional backends enabled and analysis quality regresses:
+
+1. Rebuild with both flags `OFF` (instant rollback to BuiltIn + Ellis DP beats).
+2. Delete affected `*.json` sidecars next to audio files to force re-analysis.
+3. Verify `engine_get_license_info` shows `aubio_linked: false` and `essentia_linked: false`.
+4. Run `ctest --test-dir engine/build --output-on-failure` and `pnpm test` in `apps/desktop`.
+
+No runtime toggle is required — rollback is a build-time flag change plus optional sidecar invalidation.
 
 ---
 

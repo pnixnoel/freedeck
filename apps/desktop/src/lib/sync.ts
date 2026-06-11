@@ -184,3 +184,17 @@ export function alignFollowerToMaster(input: SyncAlignInput): SyncAlignResult | 
     seekPosition: clampSeek(seekPosition, input.followerDuration),
   };
 }
+
+export function snapToBeat(position: number, gridOffset: number, spb: number): number {
+  if (spb <= 0) return position;
+  const beatsFromGrid = (position - gridOffset) / spb;
+  const snappedBeats = Math.round(beatsFromGrid);
+  return gridOffset + snappedBeats * spb;
+}
+
+export function snapToBar(position: number, gridOffset: number, spbar: number): number {
+  if (spbar <= 0) return position;
+  const barsFromGrid = (position - gridOffset) / spbar;
+  const snappedBars = Math.round(barsFromGrid);
+  return gridOffset + snappedBars * spbar;
+}

@@ -7,6 +7,20 @@ mod ffi {
         key_valid: bool,
         beatgrid_offset_seconds: f32,
         beatgrid_offset_valid: bool,
+        beats: Vec<f64>,
+        beats_valid: bool,
+        title: String,
+        artist: String,
+        album: String,
+        genre: String,
+        duration_seconds: f64,
+    }
+
+    struct LicenseInfoDto {
+        aubio_linked: bool,
+        essentia_linked: bool,
+        aubio_license: String,
+        essentia_license: String,
     }
 
     struct EngineSnapshotDto {
@@ -26,6 +40,12 @@ mod ffi {
         deck_a_tempo: f32,
         deck_a_key_lock: bool,
         deck_a_loaded: bool,
+        deck_a_synced: bool,
+        deck_a_is_master: bool,
+        deck_a_sync_phase_error: f32,
+        deck_a_loop_active: bool,
+        deck_a_loop_start_seconds: f32,
+        deck_a_loop_end_seconds: f32,
         deck_b_peak_left: f32,
         deck_b_peak_right: f32,
         deck_b_volume: f32,
@@ -37,6 +57,14 @@ mod ffi {
         deck_b_tempo: f32,
         deck_b_key_lock: bool,
         deck_b_loaded: bool,
+        deck_b_synced: bool,
+        deck_b_is_master: bool,
+        deck_b_sync_phase_error: f32,
+        deck_b_loop_active: bool,
+        deck_b_loop_start_seconds: f32,
+        deck_b_loop_end_seconds: f32,
+        master_deck: i32,
+        buffer_size_ms: f32,
     }
 
     unsafe extern "C++" {
@@ -58,14 +86,24 @@ mod ffi {
         fn set_tempo(engine: Pin<&mut Engine>, deck: u8, ratio: f32);
         fn set_key_lock(engine: Pin<&mut Engine>, deck: u8, enabled: bool);
         fn set_crossfader(engine: Pin<&mut Engine>, position: f32);
+        fn set_sync(engine: Pin<&mut Engine>, deck: u8, enabled: bool);
+        fn set_master(engine: Pin<&mut Engine>, deck: u8);
+        fn set_beatgrid(engine: Pin<&mut Engine>, deck: u8, bpm: f64, offset: f64);
+        fn set_quantize(engine: Pin<&mut Engine>, deck: u8, enabled: bool);
+        fn set_loop_points(engine: Pin<&mut Engine>, deck: u8, start_seconds: f64, end_seconds: f64);
+        fn set_loop_active(engine: Pin<&mut Engine>, deck: u8, active: bool);
+        fn track_beats(engine: &Engine, deck: u8) -> Vec<f64>;
         fn is_playing(engine: &Engine, deck: u8) -> bool;
+        fn quantize_enabled(engine: &Engine, deck: u8) -> bool;
         fn position_seconds(engine: &Engine, deck: u8) -> f64;
         fn duration_seconds(engine: &Engine, deck: u8) -> f64;
         fn waveform_peaks(engine: &Engine, deck: u8) -> Vec<f32>;
         fn track_analysis(engine: &Engine, deck: u8) -> TrackAnalysisDto;
+        fn analyze_file(path: &str) -> TrackAnalysisDto;
         fn output_left(engine: &Engine) -> f32;
         fn output_right(engine: &Engine) -> f32;
         fn engine_snapshot(engine: &Engine) -> EngineSnapshotDto;
+        fn license_info(engine: &Engine) -> LicenseInfoDto;
     }
 }
 
@@ -75,5 +113,8 @@ pub use ffi::{
     cue, duration_seconds, engine_snapshot, is_playing, load_track, output_left, output_right,
     position_seconds, seek, set_crossfader, set_eq, set_filter, set_key_lock, set_play, set_tempo,
     set_trim, set_volume, start_audio, track_analysis, waveform_peaks,
+    set_sync, set_master, set_beatgrid, track_beats, set_quantize, quantize_enabled,
+    license_info, set_loop_points, set_loop_active, analyze_file,
 };
 pub use ffi::EngineSnapshotDto;
+pub use ffi::LicenseInfoDto;

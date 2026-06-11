@@ -3,6 +3,7 @@ import { formatPlayingBpm } from "../lib/formatAnalysis";
 import { OverviewWaveform } from "./OverviewWaveform";
 
 export type DeckTrackInfo = {
+  id?: string | null;
   title: string;
   artist: string;
   bpm: number | null;
@@ -23,6 +24,8 @@ type TrackInfoBarProps = {
   onKeyLockChange?: (enabled: boolean) => void;
   onBpmDouble?: () => void;
   onBpmHalve?: () => void;
+  onGridNudge?: (deltaSeconds: number) => void;
+  onSetDownbeat?: () => void;
   isMaster?: boolean;
   masterManual?: boolean;
   onMasterClick?: () => void;
@@ -41,6 +44,8 @@ export function TrackInfoBar({
   onKeyLockChange,
   onBpmDouble,
   onBpmHalve,
+  onGridNudge,
+  onSetDownbeat,
   isMaster = false,
   masterManual = false,
   onMasterClick,
@@ -109,6 +114,37 @@ export function TrackInfoBar({
               </span>
             ) : null}
           </div>
+          {track?.bpm != null && track.bpm > 0 ? (
+            <div className="flex flex-col items-end">
+              <span className="text-[9px] uppercase text-zinc-600">Beatgrid</span>
+              <span className="flex gap-1 mt-0.5">
+                <button
+                  type="button"
+                  onClick={() => onGridNudge?.(-0.01)}
+                  className="rounded border border-zinc-800 bg-zinc-900/50 px-1.5 py-0.5 text-[8px] text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                  title="Nudge beatgrid left (-10ms)"
+                >
+                  ◀
+                </button>
+                <button
+                  type="button"
+                  onClick={onSetDownbeat}
+                  className="rounded border border-zinc-800 bg-zinc-900/50 px-1 py-0.5 text-[8px] text-zinc-400 hover:bg-zinc-800 hover:text-white font-medium"
+                  title="Set downbeat to current position"
+                >
+                  Set 1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onGridNudge?.(0.01)}
+                  className="rounded border border-zinc-800 bg-zinc-900/50 px-1.5 py-0.5 text-[8px] text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                  title="Nudge beatgrid right (+10ms)"
+                >
+                  ▶
+                </button>
+              </span>
+            </div>
+          ) : null}
           <div className="flex flex-col items-end">
             <span className="text-[9px] uppercase text-zinc-600">Key</span>
             <div className="flex items-center gap-1">
